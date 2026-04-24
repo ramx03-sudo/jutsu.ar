@@ -92,6 +92,23 @@ function Naruto({ onBack }) {
     let hintHidden = false;
     let lastResize = 0;
 
+    function getScreenCoords(nx, ny) {
+      if (!vEl || !vEl.videoWidth) return { x: (1 - nx) * window.innerWidth, y: ny * window.innerHeight };
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const vRatio = vEl.videoWidth / vEl.videoHeight;
+      const sRatio = vw / vh;
+      let renderW, renderH, offsetX, offsetY;
+      if (sRatio > vRatio) {
+        renderW = vw; renderH = vw / vRatio;
+        offsetX = 0; offsetY = (vh - renderH) / 2;
+      } else {
+        renderH = vh; renderW = vh * vRatio;
+        offsetX = (vw - renderW) / 2; offsetY = 0;
+      }
+      return { x: (1 - nx) * renderW + offsetX, y: ny * renderH + offsetY };
+    }
+
     function checkOpen(pts) {
       let count = 0;
       const wrist = pts[0];
@@ -171,8 +188,9 @@ function Naruto({ onBack }) {
             if (isR) {
               fR = true;
               const tx = (wrist.x + knk.x) / 2, ty = (wrist.y + knk.y) / 2;
-              sVid.style.left = `${(1 - tx) * window.innerWidth}px`;
-              sVid.style.top = `${ty * window.innerHeight}px`;
+              const coords = getScreenCoords(tx, ty);
+              sVid.style.left = `${coords.x}px`;
+              sVid.style.top = `${coords.y}px`;
               sVid.style.display = 'block';
               sVid.style.opacity = pwr[idx];
             } else {
@@ -180,8 +198,9 @@ function Naruto({ onBack }) {
               const dx = knk.x - wrist.x, dy = knk.y - wrist.y;
               const tx = knk.x + dx * 0.8, ty = knk.y + dy * 0.8;
               const offset = window.innerWidth < 768 ? 20 : 120;
-              nVid.style.left = `${(1 - tx) * window.innerWidth}px`;
-              nVid.style.top = `${ty * window.innerHeight - offset}px`;
+              const coords = getScreenCoords(tx, ty);
+              nVid.style.left = `${coords.x}px`;
+              nVid.style.top = `${coords.y - offset}px`;
               nVid.style.display = 'block';
               nVid.style.opacity = pwr[idx];
             }
