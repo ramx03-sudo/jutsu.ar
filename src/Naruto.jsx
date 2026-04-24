@@ -153,8 +153,9 @@ function Naruto({ onBack }) {
               fL = true;
               const dx = knk.x - wrist.x, dy = knk.y - wrist.y;
               const tx = knk.x + dx * 0.8, ty = knk.y + dy * 0.8;
+              const offset = window.innerWidth < 768 ? 20 : 120;
               nVid.style.left = `${(1 - tx) * window.innerWidth}px`;
-              nVid.style.top = `${ty * window.innerHeight - 120}px`;
+              nVid.style.top = `${ty * window.innerHeight - offset}px`;
               nVid.style.display = 'block';
               nVid.style.opacity = pwr[idx];
             }
