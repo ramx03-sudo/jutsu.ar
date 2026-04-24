@@ -2,31 +2,76 @@ import { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import './index.css';
 import './hud.css';
-/* ── AUDIO ── */
-const gAudio = new Audio('/assets/Audios/gojo-reversal-red.mp3');
-gAudio.loop = true;
-const sAudio = new Audio('/assets/Audios/malevolent_shrine.mp3');
-sAudio.loop = true;
+/* ── AUDIO FILES (Web Audio API for iOS Compatibility) ── */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-function playGojo() { gAudio.currentTime = 0; gAudio.play().catch(() => { }); }
-function playSukuna() { sAudio.currentTime = 0; sAudio.play().catch(() => { }); }
+class SFXPlayer {
+  constructor(url) {
+    this.buffer = null;
+    this.source = null;
+    this.gainNode = audioCtx.createGain();
+    this.gainNode.connect(audioCtx.destination);
+    this.gainNode.gain.value = 0;
+    this.isPlaying = false;
+    this.logicalVolume = 0;
+    
+    fetch(url)
+      .then(res => res.arrayBuffer())
+      .then(data => audioCtx.decodeAudioData(data))
+      .then(buffer => { this.buffer = buffer; })
+      .catch(e => console.warn("Audio load error:", e));
+  }
+  
+  play() {
+    if (this.isPlaying || !this.buffer) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    this.source = audioCtx.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.loop = true;
+    this.source.connect(this.gainNode);
+    this.source.start(0);
+    this.isPlaying = true;
+  }
+  
+  setVolume(vol) {
+    this.logicalVolume = vol;
+    this.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+  }
+  
+  pause() {
+    if (this.source && this.isPlaying) {
+      try { this.source.stop(); } catch(e){}
+      this.source.disconnect();
+      this.source = null;
+    }
+    this.isPlaying = false;
+    this.logicalVolume = 0;
+  }
+}
+
+const gAudio = new SFXPlayer('/assets/Audios/gojo-reversal-red.mp3');
+const sAudio = new SFXPlayer('/assets/Audios/malevolent_shrine.mp3');
+
+function playGojo() { gAudio.play(); }
+function playSukuna() { sAudio.play(); }
 
 function updateJutsuAudio(pg, ps) {
-  // Target volumes based on visual power
   const targetG = pg > 0.01 ? pg * 1.0 : 0;
   const targetS = ps > 0.01 ? ps * 0.8 : 0;
 
-  // Gojo — quick fade in, very slow fade out (smooth dissipation)
-  if (gAudio.volume < targetG) gAudio.volume = Math.min(1.0, targetG);
-  else gAudio.volume = Math.max(0, gAudio.volume - 0.01); // fades over ~100 frames (~1.6s)
+  let nextGVol = gAudio.logicalVolume;
+  if (nextGVol < targetG) nextGVol = Math.min(1.0, targetG);
+  else nextGVol = Math.max(0, nextGVol - 0.01);
 
-  // Sukuna — normal fade out
-  if (sAudio.volume < targetS) sAudio.volume = Math.min(1.0, targetS);
-  else sAudio.volume = Math.max(0, sAudio.volume - 0.02);
+  let nextSVol = sAudio.logicalVolume;
+  if (nextSVol < targetS) nextSVol = Math.min(1.0, targetS);
+  else nextSVol = Math.max(0, nextSVol - 0.02);
 
-  // Pause when silent
-  if (gAudio.volume <= 0.01 && !gAudio.paused) gAudio.pause();
-  if (sAudio.volume <= 0.01 && !sAudio.paused) sAudio.pause();
+  if (nextGVol > 0) gAudio.setVolume(nextGVol);
+  if (nextSVol > 0) sAudio.setVolume(nextSVol);
+
+  if (nextGVol <= 0.01 && gAudio.isPlaying) gAudio.pause();
+  if (nextSVol <= 0.01 && sAudio.isPlaying) sAudio.pause();
 }
 
 /* ── PARTICLE CLASSES ── */

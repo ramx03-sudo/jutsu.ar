@@ -3,36 +3,62 @@ import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-
 import './index.css';
 
 
-/* ── AUDIO FILES ── */
-const rAudio = new Audio('/assets/Audios/rasengan.mp3');
-rAudio.loop = true;
-const cAudio = new Audio('/assets/Audios/chidori.mp3');
-cAudio.loop = true;
+/* ── AUDIO FILES (Web Audio API for iOS Compatibility) ── */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-function playRasengan() {
-  rAudio.currentTime = 0;
-  rAudio.volume = 0.8;
-  rAudio.play().catch(e => console.warn("Audio play prevented:", e));
+class SFXPlayer {
+  constructor(url) {
+    this.buffer = null;
+    this.source = null;
+    this.gainNode = audioCtx.createGain();
+    this.gainNode.connect(audioCtx.destination);
+    this.gainNode.gain.value = 0;
+    this.isPlaying = false;
+    
+    fetch(url)
+      .then(res => res.arrayBuffer())
+      .then(data => audioCtx.decodeAudioData(data))
+      .then(buffer => { this.buffer = buffer; })
+      .catch(e => console.warn("Audio load error:", e));
+  }
+  
+  play() {
+    if (this.isPlaying || !this.buffer) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    this.source = audioCtx.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.loop = true;
+    this.source.connect(this.gainNode);
+    this.source.start(0);
+    this.isPlaying = true;
+  }
+  
+  setVolume(vol) {
+    this.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+  }
+  
+  pause() {
+    if (this.source && this.isPlaying) {
+      try { this.source.stop(); } catch(e){}
+      this.source.disconnect();
+      this.source = null;
+    }
+    this.isPlaying = false;
+  }
 }
 
-function playChidori() {
-  cAudio.currentTime = 0;
-  cAudio.volume = 0.8;
-  cAudio.play().catch(e => console.warn("Audio play prevented:", e));
-}
+const rAudio = new SFXPlayer('/assets/Audios/rasengan.mp3');
+const cAudio = new SFXPlayer('/assets/Audios/chidori.mp3');
+
+function playRasengan() { rAudio.play(); }
+function playChidori() { cAudio.play(); }
 
 function updateJutsuAudio(pwrL, pwrR) {
-  if (pwrL > 0.01) {
-    rAudio.volume = pwrL * 0.8;
-  } else if (!rAudio.paused) {
-    rAudio.pause();
-  }
+  if (pwrL > 0.01) rAudio.setVolume(pwrL * 0.8);
+  else rAudio.pause();
 
-  if (pwrR > 0.01) {
-    cAudio.volume = pwrR * 0.8;
-  } else if (!cAudio.paused) {
-    cAudio.pause();
-  }
+  if (pwrR > 0.01) cAudio.setVolume(pwrR * 0.8);
+  else cAudio.pause();
 }
 
 function Naruto({ onBack }) {
