@@ -1,0 +1,250 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
+
+/* VIDEO & CANVAS */
+#v_src, #out {
+  position: absolute; top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  object-fit: cover; transform: scaleX(-1);
+}
+#out { z-index: 2; pointer-events: none; }
+
+.darkness {
+  position: absolute; top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(10,5,0,0.3);
+  mix-blend-mode: multiply; pointer-events: none; z-index: 5;
+}
+
+/* JUTSU VIDEOS */
+.fx {
+  position: absolute; height: auto; top: 0; left: 0;
+  transform: translate(-50%,-50%);
+  pointer-events: none; display: none;
+  mix-blend-mode: screen; z-index: 20;
+}
+#n { width: 1600px; }
+#s { width: 2400px; }
+
+/* ── LOADING SCREEN ── */
+#loading-screen {
+  position: fixed; inset: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  transition: opacity 0.8s ease, visibility 0.8s ease;
+}
+#loading-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.loader-ring {
+  width: 120px; height: 120px; border-radius: 50%;
+  border: 3px solid rgba(255,140,0,0.15);
+  border-top-color: #ff8c00; border-right-color: #ff4500;
+  animation: spin 1.2s linear infinite;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 32px;
+}
+.loader-ring-inner {
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 3px solid rgba(138,43,226,0.15);
+  border-top-color: #a855f7; border-left-color: #00d4ff;
+  animation: spin 0.8s linear infinite reverse;
+  display: flex; align-items: center; justify-content: center;
+}
+.loader-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: radial-gradient(circle, #fff, #ff8c00);
+  box-shadow: 0 0 15px #ff8c00, 0 0 30px #ff4500;
+  animation: ldPulse 1s ease-in-out infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ldPulse {
+  0%,100% { transform: scale(1); box-shadow: 0 0 15px #ff8c00, 0 0 30px #ff4500; }
+  50%      { transform: scale(1.3); box-shadow: 0 0 25px #ff8c00, 0 0 50px #ff4500; }
+}
+
+.loader-title {
+  font-family: 'Cinzel', serif; font-size: 2.4rem; font-weight: 900;
+  letter-spacing: 0.3em;
+  background: linear-gradient(90deg, #ff8c00, #ff4500, #a855f7, #00d4ff);
+  background-size: 300% 100%;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+  margin-bottom: 6px;
+}
+@keyframes shimmer { to { background-position: 300% 0; } }
+
+.loader-sub {
+  font-size: 0.78rem; letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.35); text-transform: uppercase;
+  margin-bottom: 40px;
+}
+.loader-status {
+  font-size: 0.78rem; letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.5);
+  animation: blink 1.5s ease-in-out infinite;
+}
+@keyframes blink { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* ── FLASH OVERLAY ── */
+#flash {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 10; opacity: 0;
+}
+@keyframes flashAnim { 0% { opacity: 1; } 100% { opacity: 0; } }
+.flash-naruto {
+  background: radial-gradient(ellipse at center, rgba(255,140,0,0.18) 0%, transparent 70%);
+  animation: flashAnim 0.45s ease-out forwards;
+}
+.flash-sasuke {
+  background: radial-gradient(ellipse at center, rgba(168,85,247,0.18) 0%, transparent 70%);
+  animation: flashAnim 0.45s ease-out forwards;
+}
+
+/* ── TOP BADGE ── */
+#top-badge {
+  position: fixed; top: 22px; left: 50%; transform: translateX(-50%);
+  z-index: 100; pointer-events: none; text-align: center;
+}
+.badge-title {
+  font-family: 'Cinzel', serif; font-size: 0.82rem;
+  letter-spacing: 0.28em; color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+}
+
+/* ── CENTER HINT ── */
+#hint {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 50; text-align: center;
+  pointer-events: none; transition: opacity 0.6s;
+}
+#hint.hidden { opacity: 0; }
+.hint-hand { font-size: 3.8rem; animation: float 2s ease-in-out infinite; display: block; }
+@keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.hint-text {
+  font-size: 0.75rem; letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.45); text-transform: uppercase; margin-top: 12px;
+}
+
+/* ── HUD ── */
+#hud {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 24px 32px; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 100%);
+}
+
+.chakra-panel { display: flex; flex-direction: column; gap: 6px; min-width: 190px; }
+.chakra-panel.right { align-items: flex-end; text-align: right; }
+
+.hand-label { font-size: 0.68rem; letter-spacing: 0.15em; color: rgba(255,255,255,0.35); text-transform: uppercase; margin-bottom: 2px; }
+
+.jutsu-name {
+  font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.col-n { color: #ff8c00; }
+.col-s { color: #a855f7; }
+
+.bar-row { display: flex; align-items: center; gap: 8px; }
+.chakra-panel.right .bar-row { flex-direction: row-reverse; }
+
+.bar-bg {
+  width: 150px; height: 5px; border-radius: 3px;
+  background: rgba(255,255,255,0.1); overflow: hidden;
+}
+.bar-fill { height: 100%; border-radius: 3px; width: 0%; transition: width 0.08s linear; }
+.bar-n { background: linear-gradient(90deg, #ff6000, #ff8c00, #ffd700); }
+.bar-s { background: linear-gradient(90deg, #6600cc, #a855f7, #00d4ff); }
+
+.pct { font-size: 0.72rem; font-weight: 600; min-width: 34px; }
+
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.dot.on-n {
+  background: #ff8c00;
+  box-shadow: 0 0 8px #ff8c00, 0 0 16px #ff4500;
+  animation: dotPulse 0.5s ease-in-out infinite;
+}
+.dot.on-s {
+  background: #a855f7;
+  box-shadow: 0 0 8px #a855f7, 0 0 16px #6600cc;
+  animation: dotPulse 0.5s ease-in-out infinite;
+}
+@keyframes dotPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.45); } }
+
+/* ── JJK STYLES ── */
+.jjk-ring { border-top-color: #00d4ff; border-right-color: #4488ff; }
+.jjk-ring-inner { border-top-color: #ff0000; border-left-color: #aa0000; }
+.jjk-dot { background: radial-gradient(circle, #fff, #00d4ff); box-shadow: 0 0 15px #00d4ff, 0 0 30px #4488ff; }
+.jjk-title { background: linear-gradient(90deg, #00d4ff, #4488ff, #ff0000, #ff4444); background-clip: text; -webkit-background-clip: text; }
+.jjk-darkness { background: rgba(5,0,10,0.35); }
+
+.col-gojo { color: #00d4ff; }
+.col-sukuna { color: #ff4444; }
+.bar-gojo { background: linear-gradient(90deg, #0055cc, #4488ff, #00d4ff); }
+.bar-sukuna { background: linear-gradient(90deg, #aa0000, #ff0000, #ff5555); }
+
+.dot.on-gojo { background: #00d4ff; box-shadow: 0 0 8px #00d4ff, 0 0 16px #4488ff; animation: dotPulse 0.5s ease-in-out infinite; }
+.dot.on-sukuna { background: #ff4444; box-shadow: 0 0 8px #ff4444, 0 0 16px #ff0000; animation: dotPulse 0.5s ease-in-out infinite; }
+
+.flash-gojo { background: radial-gradient(ellipse at center, rgba(0,212,255,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
+.flash-sukuna { background: radial-gradient(ellipse at center, rgba(255,0,0,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
+
+/* ── SELECTION SCREEN ── */
+.selection-screen {
+  width: 100vw; height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at center, #1a1a2e 0%, #000 100%);
+  color: #fff;
+}
+.selection-title {
+  font-family: 'Cinzel', serif; font-size: 3rem; letter-spacing: 0.15em;
+  text-transform: uppercase; margin-bottom: 8px;
+  background: linear-gradient(90deg, #fff, #ccc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.selection-subtitle {
+  font-size: 0.9rem; letter-spacing: 0.2em; color: rgba(255,255,255,0.4);
+  text-transform: uppercase; margin-bottom: 60px;
+}
+.selection-cards { display: flex; gap: 40px; }
+
+.card {
+  position: relative; width: 280px; height: 380px;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(25,25,35,0.5); backdrop-filter: blur(10px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; overflow: hidden; transition: transform 0.3s, border-color 0.3s;
+}
+.card:hover { transform: translateY(-10px); }
+.card-bg {
+  position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s;
+  z-index: 0;
+}
+.naruto-card:hover { border-color: rgba(255,140,0,0.5); }
+.naruto-card:hover .card-bg { opacity: 1; background: radial-gradient(circle at bottom, rgba(255,140,0,0.2), transparent); }
+.jjk-card:hover { border-color: rgba(0,212,255,0.5); }
+.jjk-card:hover .card-bg { opacity: 1; background: radial-gradient(circle at bottom, rgba(0,212,255,0.2), transparent); }
+
+.card h2 { position: relative; z-index: 1; font-family: 'Cinzel', serif; font-size: 1.8rem; margin-bottom: 10px; }
+.card p { position: relative; z-index: 1; font-size: 0.8rem; color: rgba(255,255,255,0.5); letter-spacing: 0.05em; margin-bottom: 30px; text-align: center; padding: 0 20px; }
+.card-icon { position: relative; z-index: 1; font-size: 3.5rem; transition: transform 0.3s; }
+.card:hover .card-icon { transform: scale(1.15); }
+
+/* ── BACK BUTTON ── */
+.back-btn {
+  position: fixed; top: 30px; left: 30px; z-index: 1000;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  color: #fff; font-family: 'Inter', sans-serif; font-size: 0.75rem; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 10px 16px; border-radius: 4px;
+  cursor: pointer; backdrop-filter: blur(5px); transition: background 0.2s;
+}
+.back-btn:hover { background: rgba(255,255,255,0.15); }
