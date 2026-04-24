@@ -520,7 +520,7 @@ function JJK({ onBack }) {
         vEl.srcObject = stream;
         vEl.addEventListener('loadeddata', predictWebcam);
         setLoadingMsg('Cursed Energy Online!');
-        setTimeout(() => setIsLoading(false), 1200);
+        setTimeout(() => setIsLoading(false), 200);
       } catch {
         setLoadingMsg('⚠ Camera access denied.');
       }

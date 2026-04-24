@@ -212,7 +212,7 @@ function Naruto({ onBack }) {
         setLoadingMsg('Chakra online — prepare your hands!');
         setTimeout(() => {
           setIsLoading(false);
-        }, 1200);
+        }, 200);
       } catch (err) {
         setLoadingMsg('⚠ Camera access denied.');
       }
