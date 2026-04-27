@@ -1,51 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
+import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
+import { useHandTracking } from './hooks/useHandTracking';
 import './index.css';
-
-
-/* ── AUDIO FILES (Web Audio API for iOS Compatibility) ── */
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-class SFXPlayer {
-  constructor(url) {
-    this.buffer = null;
-    this.source = null;
-    this.gainNode = audioCtx.createGain();
-    this.gainNode.connect(audioCtx.destination);
-    this.gainNode.gain.value = 0;
-    this.isPlaying = false;
-    
-    fetch(url)
-      .then(res => res.arrayBuffer())
-      .then(data => audioCtx.decodeAudioData(data))
-      .then(buffer => { this.buffer = buffer; })
-      .catch(e => console.warn("Audio load error:", e));
-  }
-  
-  play() {
-    if (this.isPlaying || !this.buffer) return;
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    this.source = audioCtx.createBufferSource();
-    this.source.buffer = this.buffer;
-    this.source.loop = true;
-    this.source.connect(this.gainNode);
-    this.source.start(0);
-    this.isPlaying = true;
-  }
-  
-  setVolume(vol) {
-    this.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
-  }
-  
-  pause() {
-    if (this.source && this.isPlaying) {
-      try { this.source.stop(); } catch(e){}
-      this.source.disconnect();
-      this.source = null;
-    }
-    this.isPlaying = false;
-  }
-}
 
 const rAudio = new SFXPlayer('/assets/Audios/rasengan.mp3');
 const cAudio = new SFXPlayer('/assets/Audios/chidori.mp3');
@@ -69,28 +26,45 @@ function Naruto({ onBack }) {
   const flashRef = useRef(null);
   const hintRef = useRef(null);
 
-  const [loadingMsg, setLoadingMsg] = useState('Initialising chakra sensors…');
-  const [isLoading, setIsLoading] = useState(true);
-
   // HUD state
   const [pwrL, setPwrL] = useState(0);
   const [pwrR, setPwrR] = useState(0);
   const [openL, setOpenL] = useState(false);
   const [openR, setOpenR] = useState(false);
 
-  useEffect(() => {
+  // We use Refs for power and state inside the onResults callback so we don't have to recreate it
+  const stateRef = useRef({
+    pwr: [0, 0],
+    wasOpen: [false, false],
+    hintHidden: false,
+    lastResize: 0
+  });
+
+  const onResults = useCallback((res) => {
     const vEl = vRef.current;
     const cEl = cRef.current;
+    if (!vEl || !cEl) return;
+    
     const ctx = cEl.getContext('2d');
     const nVid = nVidRef.current;
     const sVid = sVidRef.current;
     const flash = flashRef.current;
     const hint = hintRef.current;
+    const st = stateRef.current;
 
-    let pwr = [0, 0];
-    let wasOpen = [false, false];
-    let hintHidden = false;
-    let lastResize = 0;
+    const now = Date.now();
+    if (now - st.lastResize > 250) {
+      cEl.width = vEl.videoWidth || window.innerWidth;
+      cEl.height = vEl.videoHeight || window.innerHeight;
+      st.lastResize = now;
+    }
+
+    ctx.save();
+    ctx.clearRect(0, 0, cEl.width, cEl.height);
+
+    let fL = false, fR = false;
+    if (nVid) nVid.style.display = 'none';
+    if (sVid) sVid.style.display = 'none';
 
     function getScreenCoords(nx, ny) {
       if (!vEl || !vEl.videoWidth) return { x: (1 - nx) * window.innerWidth, y: ny * window.innerHeight };
@@ -126,6 +100,7 @@ function Naruto({ onBack }) {
     }
 
     function triggerFlash(type) {
+      if (!flash) return;
       flash.className = '';
       void flash.offsetWidth;
       flash.className = type === 'n' ? 'flash-naruto' : 'flash-sasuke';
@@ -133,167 +108,94 @@ function Naruto({ onBack }) {
       else playChidori();
     }
 
-    function onResults(res) {
-      const now = Date.now();
-      if (now - lastResize > 250) {
-        cEl.width = vEl.videoWidth;
-        cEl.height = vEl.videoHeight;
-        lastResize = now;
+    if (res.multiHandLandmarks && res.multiHandedness) {
+      if (res.multiHandLandmarks.length > 0 && !st.hintHidden) {
+        st.hintHidden = true;
+        if (hint) hint.classList.add('hidden');
       }
 
-      ctx.save();
-      ctx.clearRect(0, 0, cEl.width, cEl.height);
+      const drawingUtils = new DrawingUtils(ctx);
 
-      let fL = false, fR = false;
-      nVid.style.display = 'none';
-      sVid.style.display = 'none';
+      res.multiHandLandmarks.forEach((pts, i) => {
+        const isR = res.multiHandedness[i].label === 'Right';
+        const idx = isR ? 1 : 0;
 
-      if (res.multiHandLandmarks && res.multiHandedness) {
-        if (res.multiHandLandmarks.length > 0 && !hintHidden) {
-          hintHidden = true;
-          hint.classList.add('hidden');
+        ctx.save();
+        if (isR) {
+          ctx.shadowBlur = 14; ctx.shadowColor = '#a855f7';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#c084fc', lineWidth: 3 });
+        } else {
+          ctx.shadowBlur = 14; ctx.shadowColor = '#ff8c00';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ffb347', lineWidth: 3 });
+        }
+        drawingUtils.drawLandmarks(pts, { color: '#ffffff', lineWidth: 1, radius: 2 });
+        ctx.restore();
+
+        const open = checkOpen(pts);
+        if (open && !st.wasOpen[idx]) {
+          triggerFlash(isR ? 's' : 'n');
+          const vid = isR ? sVid : nVid;
+          if (vid) { vid.currentTime = 0; vid.play().catch(e=>{}); }
         }
 
-        const drawingUtils = new DrawingUtils(ctx);
+        st.pwr[idx] += open ? 0.05 : -0.15;
+        st.pwr[idx] = Math.max(0, Math.min(1, st.pwr[idx]));
+        st.wasOpen[idx] = open;
 
-        res.multiHandLandmarks.forEach((pts, i) => {
-          const isR = res.multiHandedness[i].label === 'Right';
-          const idx = isR ? 1 : 0;
+        const wrist = pts[0], knk = pts[9];
 
-          ctx.save();
-          if (isR) {
-            ctx.shadowBlur = 14; ctx.shadowColor = '#a855f7';
-            drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#c084fc', lineWidth: 3 });
-          } else {
-            ctx.shadowBlur = 14; ctx.shadowColor = '#ff8c00';
-            drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ffb347', lineWidth: 3 });
+        if (st.pwr[idx] > 0.01) {
+          if (isR && sVid) {
+            fR = true;
+            const tx = (wrist.x + knk.x) / 2, ty = (wrist.y + knk.y) / 2;
+            const coords = getScreenCoords(tx, ty);
+            sVid.style.left = `${coords.x}px`;
+            sVid.style.top = `${coords.y}px`;
+            sVid.style.display = 'block';
+            sVid.style.opacity = st.pwr[idx];
+          } else if (nVid) {
+            fL = true;
+            const dx = knk.x - wrist.x, dy = knk.y - wrist.y;
+            const tx = knk.x + dx * 0.8, ty = knk.y + dy * 0.8;
+            const offset = window.innerWidth < 768 ? 20 : 120;
+            const coords = getScreenCoords(tx, ty);
+            nVid.style.left = `${coords.x}px`;
+            nVid.style.top = `${coords.y - offset}px`;
+            nVid.style.display = 'block';
+            nVid.style.opacity = st.pwr[idx];
           }
-          drawingUtils.drawLandmarks(pts, { color: '#ffffff', lineWidth: 1, radius: 2 });
-          ctx.restore();
-
-          const open = checkOpen(pts);
-          if (open && !wasOpen[idx]) {
-            triggerFlash(isR ? 's' : 'n');
-            const vid = isR ? sVid : nVid;
-            vid.currentTime = 0; vid.play().catch(e=>{});
-          }
-
-          pwr[idx] += open ? 0.05 : -0.15;
-          pwr[idx] = Math.max(0, Math.min(1, pwr[idx]));
-          wasOpen[idx] = open;
-
-          const wrist = pts[0], knk = pts[9];
-
-          if (pwr[idx] > 0.01) {
-            if (isR) {
-              fR = true;
-              const tx = (wrist.x + knk.x) / 2, ty = (wrist.y + knk.y) / 2;
-              const coords = getScreenCoords(tx, ty);
-              sVid.style.left = `${coords.x}px`;
-              sVid.style.top = `${coords.y}px`;
-              sVid.style.display = 'block';
-              sVid.style.opacity = pwr[idx];
-            } else {
-              fL = true;
-              const dx = knk.x - wrist.x, dy = knk.y - wrist.y;
-              const tx = knk.x + dx * 0.8, ty = knk.y + dy * 0.8;
-              const offset = window.innerWidth < 768 ? 20 : 120;
-              const coords = getScreenCoords(tx, ty);
-              nVid.style.left = `${coords.x}px`;
-              nVid.style.top = `${coords.y - offset}px`;
-              nVid.style.display = 'block';
-              nVid.style.opacity = pwr[idx];
-            }
-          }
-        });
-      }
-
-      if (!fL) {
-        pwr[0] = Math.max(0, pwr[0] - 0.15);
-        if (pwr[0] > 0.01) { nVid.style.display = 'block'; nVid.style.opacity = pwr[0]; }
-        wasOpen[0] = false;
-      }
-      if (!fR) {
-        pwr[1] = Math.max(0, pwr[1] - 0.15);
-        if (pwr[1] > 0.01) { sVid.style.display = 'block'; sVid.style.opacity = pwr[1]; }
-        wasOpen[1] = false;
-      }
-
-      // Update State for HUD
-      setPwrL(pwr[0]);
-      setPwrR(pwr[1]);
-      setOpenL(wasOpen[0]);
-      setOpenR(wasOpen[1]);
-      
-
-      updateJutsuAudio(pwr[0], pwr[1]);
-      
-      ctx.restore();
-    }
-
-    let handLandmarker = null;
-    let animationId = null;
-    let lastVideoTime = -1;
-
-    async function initVision() {
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-      );
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU"
-        },
-        runningMode: "VIDEO",
-        numHands: 4,
-        minHandDetectionConfidence: 0.75,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        }
       });
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 } });
-        vEl.srcObject = stream;
-        vEl.addEventListener("loadeddata", predictWebcam);
-        setLoadingMsg('Chakra online — prepare your hands!');
-        setTimeout(() => {
-          setIsLoading(false);
-        }, 200);
-      } catch (err) {
-        setLoadingMsg('⚠ Camera access denied.');
-      }
     }
 
-    function predictWebcam() {
-      if (!vEl || vEl.paused || vEl.ended) return;
-      if (vEl.currentTime !== lastVideoTime && handLandmarker) {
-        lastVideoTime = vEl.currentTime;
-        const results = handLandmarker.detectForVideo(vEl, performance.now());
-        
-        // Map to legacy format to keep logic working perfectly
-        const res = {
-          multiHandLandmarks: results.landmarks,
-          multiHandedness: results.handednesses.map(h => ({ label: h[0].categoryName }))
-        };
-        onResults(res);
-      }
-      animationId = requestAnimationFrame(predictWebcam);
+    if (!fL && nVid) {
+      st.pwr[0] = Math.max(0, st.pwr[0] - 0.15);
+      if (st.pwr[0] > 0.01) { nVid.style.display = 'block'; nVid.style.opacity = st.pwr[0]; }
+      st.wasOpen[0] = false;
+    }
+    if (!fR && sVid) {
+      st.pwr[1] = Math.max(0, st.pwr[1] - 0.15);
+      if (st.pwr[1] > 0.01) { sVid.style.display = 'block'; sVid.style.opacity = st.pwr[1]; }
+      st.wasOpen[1] = false;
     }
 
-    initVision();
+    setPwrL(st.pwr[0]);
+    setPwrR(st.pwr[1]);
+    setOpenL(st.wasOpen[0]);
+    setOpenR(st.wasOpen[1]);
 
+    updateJutsuAudio(st.pwr[0], st.pwr[1]);
+    
+    ctx.restore();
+  }, []);
+
+  const { isLoading, loadingMsg } = useHandTracking(vRef, onResults);
+
+  useEffect(() => {
     return () => {
-      if (animationId) cancelAnimationFrame(animationId);
-      if (vEl && vEl.srcObject) {
-        vEl.srcObject.getTracks().forEach(t => t.stop());
-      }
-      if (handLandmarker) {
-        handLandmarker.close();
-      }
       rAudio.pause();
       cAudio.pause();
     };
-
   }, []);
 
   return (

@@ -1,82 +1,47 @@
-import { useEffect, useRef, useState } from 'react';
-import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
+import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
+import { useHandTracking } from './hooks/useHandTracking';
 import './index.css';
 import './hud.css';
-/* ── AUDIO FILES (Web Audio API for iOS Compatibility) ── */
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-class SFXPlayer {
-  constructor(url) {
-    this.buffer = null;
-    this.source = null;
-    this.gainNode = audioCtx.createGain();
-    this.gainNode.connect(audioCtx.destination);
-    this.gainNode.gain.value = 0;
-    this.isPlaying = false;
-    this.logicalVolume = 0;
-    
-    fetch(url)
-      .then(res => res.arrayBuffer())
-      .then(data => audioCtx.decodeAudioData(data))
-      .then(buffer => { this.buffer = buffer; })
-      .catch(e => console.warn("Audio load error:", e));
-  }
-  
-  play() {
-    if (this.isPlaying || !this.buffer) return;
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    this.source = audioCtx.createBufferSource();
-    this.source.buffer = this.buffer;
-    this.source.loop = true;
-    this.source.connect(this.gainNode);
-    this.source.start(0);
-    this.isPlaying = true;
-  }
-  
-  setVolume(vol) {
-    this.logicalVolume = vol;
-    this.gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
-  }
-  
-  pause() {
-    if (this.source && this.isPlaying) {
-      try { this.source.stop(); } catch(e){}
-      this.source.disconnect();
-      this.source = null;
-    }
-    this.isPlaying = false;
-    this.logicalVolume = 0;
-  }
-}
 
 const gAudio = new SFXPlayer('/assets/Audios/gojo-reversal-red.mp3');
+const pAudio = new SFXPlayer('/assets/Audios/gojo_domain_expansion.mp3'); 
 const sAudio = new SFXPlayer('/assets/Audios/malevolent_shrine.mp3');
 
 function playGojo() { gAudio.play(); }
+function playPurple() { pAudio.play(); }
 function playSukuna() { sAudio.play(); }
 
-function updateJutsuAudio(pg, ps) {
+function updateJutsuAudio(pg, pp, ps) {
   const targetG = pg > 0.01 ? pg * 1.0 : 0;
+  const targetP = pp > 0.01 ? pp * 1.0 : 0;
   const targetS = ps > 0.01 ? ps * 0.8 : 0;
 
   let nextGVol = gAudio.logicalVolume;
   if (nextGVol < targetG) nextGVol = Math.min(1.0, targetG);
   else nextGVol = Math.max(0, nextGVol - 0.01);
 
+  let nextPVol = pAudio.logicalVolume;
+  if (nextPVol < targetP) nextPVol = Math.min(1.0, targetP);
+  else nextPVol = Math.max(0, nextPVol - 0.01);
+
   let nextSVol = sAudio.logicalVolume;
   if (nextSVol < targetS) nextSVol = Math.min(1.0, targetS);
   else nextSVol = Math.max(0, nextSVol - 0.02);
 
   if (nextGVol > 0) gAudio.setVolume(nextGVol);
+  if (nextPVol > 0) pAudio.setVolume(nextPVol);
   if (nextSVol > 0) sAudio.setVolume(nextSVol);
 
   if (nextGVol <= 0.01 && gAudio.isPlaying) gAudio.pause();
+  if (nextPVol <= 0.01 && pAudio.isPlaying) pAudio.pause();
   if (nextSVol <= 0.01 && sAudio.isPlaying) sAudio.pause();
 }
 
 /* ── PARTICLE CLASSES ── */
 class GojoSparkParticle {
-  constructor(cx, cy, power) {
+  constructor(cx, cy, power, isBlue = false) {
     const angle = Math.random() * Math.PI * 2;
     const speed = Math.random() * 4 * power + 1;
     this.x = cx; this.y = cy;
@@ -86,6 +51,7 @@ class GojoSparkParticle {
     this.decay = Math.random() * 0.05 + 0.02;
     this.size = Math.random() * 2 * power + 0.5;
     this.trail = [];
+    this.isBlue = isBlue;
   }
   update() {
     this.trail.push({ x: this.x, y: this.y });
@@ -102,7 +68,11 @@ class GojoSparkParticle {
     for (let i = 1; i < this.trail.length; i++) {
       ctx.lineTo(this.trail[i].x, this.trail[i].y);
     }
-    ctx.strokeStyle = `rgba(255, 80, 0, ${this.life})`;
+    if (this.isBlue) {
+       ctx.strokeStyle = `rgba(50, 150, 255, ${this.life})`;
+    } else {
+       ctx.strokeStyle = `rgba(255, 80, 0, ${this.life})`;
+    }
     ctx.lineWidth = this.size;
     ctx.lineCap = 'round';
     ctx.stroke();
@@ -152,93 +122,268 @@ class SukunaParticle {
 }
 
 /* ── AURA RENDERERS ── */
-function drawGojoRedAura(ctx, cx, cy, power, t) {
+function drawGojoAura(ctx, cx, cy, power, t, isBlue) {
   if (power < 0.02) return;
   ctx.save();
 
-  // Core sizing (golf ball to small orange ~ 40px max)
   const pulse = 1 + Math.sin(t * 0.01) * 0.05;
   let coreR = 15 + power * 25 * pulse;
 
-  // 1. Cinematic Bloom & Heat Distortion
   const bloomR = coreR * 6;
   const bloom = ctx.createRadialGradient(cx, cy, coreR * 0.5, cx, cy, bloomR);
-  bloom.addColorStop(0, `rgba(255, 20,  0, ${power * 0.6})`);
-  bloom.addColorStop(0.3, `rgba(180, 0,   0, ${power * 0.25})`);
-  bloom.addColorStop(0.7, `rgba(60,  0,   0, ${power * 0.1})`);
+  if (isBlue) {
+    bloom.addColorStop(0, `rgba(0, 100, 255, ${power * 0.6})`);
+    bloom.addColorStop(0.3, `rgba(0, 50, 180, ${power * 0.25})`);
+    bloom.addColorStop(0.7, `rgba(0, 0, 60, ${power * 0.1})`);
+  } else {
+    bloom.addColorStop(0, `rgba(255, 20,  0, ${power * 0.6})`);
+    bloom.addColorStop(0.3, `rgba(180, 0,   0, ${power * 0.25})`);
+    bloom.addColorStop(0.7, `rgba(60,  0,   0, ${power * 0.1})`);
+  }
   bloom.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = bloom;
   ctx.globalAlpha = 1;
   ctx.beginPath(); ctx.arc(cx, cy, bloomR, 0, Math.PI * 2); ctx.fill();
 
-  // 2. 3D Orbiting Plasma Rings
-  // Using ellipse() to simulate true 3D rotation in space
   const numRings = 3;
-  const ringAngles = [t * 0.002, -t * 0.003, t * 0.0015]; // Spin speed
-  const ringTilts = [0.25, 0.35, 0.15]; // Y-axis squash for 3D depth
-  const ringScale = [1.8, 2.4, 3.2]; // Radius multipliers
+  const timeMult = isBlue ? -1 : 1; 
+  const ringAngles = [timeMult * t * 0.002, timeMult * -t * 0.003, timeMult * t * 0.0015];
+  const ringTilts = [0.25, 0.35, 0.15];
+  const ringScale = [1.8, 2.4, 3.2];
 
   for (let i = 0; i < numRings; i++) {
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Global wobble/angle of the ring plane
     const ellipseRot = i * (Math.PI / 1.5) + Math.sin(t * 0.001 + i) * 0.2;
-
     const radiusX = coreR * ringScale[i];
     const radiusY = radiusX * ringTilts[i];
     const spin = ringAngles[i] * 3;
 
-    // Motion blur trails
     const numTrails = 8;
     for (let j = 0; j < numTrails; j++) {
       ctx.beginPath();
       const arcOffset = j * 0.15;
       const start = spin - Math.PI * 0.6 + arcOffset;
       const end = spin + arcOffset;
-      // ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle)
       ctx.ellipse(0, 0, radiusX, radiusY, ellipseRot, start, end);
 
       ctx.lineWidth = (6 - j * 0.6) * power;
       const alpha = power * (1 - j / numTrails);
-      ctx.strokeStyle = `rgba(255, ${40 + j * 15}, 0, ${alpha})`;
+      
+      if (isBlue) {
+        ctx.strokeStyle = `rgba(${40 + j * 15}, 150, 255, ${alpha})`;
+        if (j === 0) { ctx.shadowColor = '#0088ff'; ctx.shadowBlur = 15 * power; }
+      } else {
+        ctx.strokeStyle = `rgba(255, ${40 + j * 15}, 0, ${alpha})`;
+        if (j === 0) { ctx.shadowColor = '#ff2000'; ctx.shadowBlur = 15 * power; }
+      }
+      
       ctx.lineCap = 'round';
-
-      if (j === 0) { ctx.shadowColor = '#ff2000'; ctx.shadowBlur = 15 * power; }
-      else { ctx.shadowBlur = 0; }
-
+      if (j !== 0) ctx.shadowBlur = 0;
       ctx.stroke();
     }
 
-    // Faint full orbit path for grounding
     ctx.beginPath();
     ctx.ellipse(0, 0, radiusX, radiusY, ellipseRot, 0, Math.PI * 2);
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = `rgba(255, 30, 0, ${power * 0.15})`;
+    ctx.strokeStyle = isBlue ? `rgba(0, 100, 255, ${power * 0.15})` : `rgba(255, 30, 0, ${power * 0.15})`;
     ctx.stroke();
-
     ctx.restore();
   }
 
-  // 3. Dense Volumetric Core Sphere
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
   const plasmaG = ctx.createRadialGradient(cx, cy, coreR * 0.2, cx, cy, coreR);
-  plasmaG.addColorStop(0, `rgba(255, 255, 255, ${power})`);     // White hot center
-  plasmaG.addColorStop(0.3, `rgba(255, 180, 50,  ${power})`);     // Orange-white
-  plasmaG.addColorStop(0.55, `rgba(255, 20,  0,   ${power})`);     // Crimson red
-  plasmaG.addColorStop(0.85, `rgba(160, 0,   0,   ${power * 0.9})`);
+  if (isBlue) {
+    plasmaG.addColorStop(0, `rgba(255, 255, 255, ${power})`);
+    plasmaG.addColorStop(0.3, `rgba(150, 220, 255,  ${power})`);
+    plasmaG.addColorStop(0.55, `rgba(0, 100, 255,   ${power})`);
+    plasmaG.addColorStop(0.85, `rgba(0, 0, 160,   ${power * 0.9})`);
+  } else {
+    plasmaG.addColorStop(0, `rgba(255, 255, 255, ${power})`);
+    plasmaG.addColorStop(0.3, `rgba(255, 180, 50,  ${power})`);
+    plasmaG.addColorStop(0.55, `rgba(255, 20,  0,   ${power})`);
+    plasmaG.addColorStop(0.85, `rgba(160, 0,   0,   ${power * 0.9})`);
+  }
   plasmaG.addColorStop(1, `rgba(0,   0,   0,   0)`);
   ctx.fillStyle = plasmaG;
-  ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 40 * power;
+  ctx.shadowColor = isBlue ? '#0044ff' : '#ff0000'; 
+  ctx.shadowBlur = 40 * power;
   ctx.beginPath(); ctx.arc(cx, cy, coreR, 0, Math.PI * 2); ctx.fill();
 
-  // 4. Pressure Pulse Phase (Release)
   if (power > 0.8) {
-    const sw = (power - 0.8) * 5; // scales 0 to 1
-    ctx.strokeStyle = `rgba(255, 60, 0, ${1 - sw})`;
+    const sw = (power - 0.8) * 5;
+    ctx.strokeStyle = isBlue ? `rgba(0, 150, 255, ${1 - sw})` : `rgba(255, 60, 0, ${1 - sw})`;
     ctx.lineWidth = 6 * (1 - sw);
     ctx.shadowBlur = 0;
     ctx.beginPath(); ctx.arc(cx, cy, coreR * (1 + sw * 2.5), 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHollowPurpleCinematic(ctx, w, h, positions, power, t) {
+  if (power < 0.01) return;
+  
+  ctx.save();
+  
+  const centerX = w * 0.5;
+  const centerY = h * 0.4;
+  
+  let leftX = w * 0.25; 
+  let leftY = centerY; 
+  let rightX = w * 0.75; 
+  let rightY = centerY;
+
+  if (positions) {
+     if (positions.red) { leftX = positions.red.x; leftY = positions.red.y; }
+     if (positions.blue) { rightX = positions.blue.x; rightY = positions.blue.y; }
+  }
+
+  const draw3DOrb = (x, y, r, type, powerScale) => {
+    ctx.save();
+    
+    let colorCore, colorMid, colorEdge;
+    if (type === 'blue') {
+      colorCore = `rgba(150, 200, 255, ${powerScale})`;
+      colorMid = `rgba(0, 100, 255, ${powerScale * 0.7})`;
+      colorEdge = '#00aaff';
+    } else if (type === 'red') {
+      colorCore = `rgba(255, 150, 150, ${powerScale})`;
+      colorMid = `rgba(255, 20, 0, ${powerScale * 0.7})`;
+      colorEdge = '#ff2200';
+    } else if (type === 'purple') {
+      colorCore = `rgba(10, 0, 20, ${powerScale})`;
+      colorMid = `rgba(150, 0, 255, ${powerScale * 0.9})`;
+      colorEdge = '#aa00ff';
+    }
+
+    const bloomR = r * 5;
+    const bloom = ctx.createRadialGradient(x, y, r * 0.1, x, y, bloomR);
+    bloom.addColorStop(0, colorCore);
+    bloom.addColorStop(0.3, colorMid);
+    if (type === 'purple') bloom.addColorStop(0.6, `rgba(50, 0, 100, ${powerScale * 0.4})`);
+    bloom.addColorStop(1, 'rgba(0,0,0,0)');
+    
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = bloom;
+    ctx.beginPath(); ctx.arc(x, y, bloomR, 0, Math.PI * 2); ctx.fill();
+
+    const numRings = 3;
+    const timeScale = type === 'blue' ? -t * 0.003 : t * 0.002; 
+    const ringAngles = [timeScale, timeScale * 1.5, -timeScale * 0.8];
+    const ringTilts = [0.2, 0.35, 0.15];
+    const ringScale = [1.5, 2.2, 3.0];
+    
+    for (let i = 0; i < numRings; i++) {
+      ctx.save();
+      ctx.translate(x, y);
+      
+      const ellipseRot = i * (Math.PI / 1.5) + (type === 'purple' ? Math.sin(t*0.001)*0.5 : 0);
+      const radiusX = r * ringScale[i] * (type === 'purple' ? 1.5 : 1);
+      const radiusY = radiusX * ringTilts[i];
+      const spin = ringAngles[i] * 3;
+      
+      const numTrails = type === 'purple' ? 12 : 8;
+      for (let j = 0; j < numTrails; j++) {
+        ctx.beginPath();
+        const arcOffset = j * 0.15;
+        const start = spin - Math.PI * 0.6 + arcOffset;
+        const end = spin + arcOffset;
+        ctx.ellipse(0, 0, radiusX, radiusY, ellipseRot, start, end);
+        
+        ctx.lineWidth = (type === 'purple' ? 10 : 5) * powerScale * (1 - j / numTrails);
+        const alpha = powerScale * (1 - j / numTrails);
+        
+        if (type === 'blue') ctx.strokeStyle = `rgba(100, 200, 255, ${alpha})`;
+        else if (type === 'red') ctx.strokeStyle = `rgba(255, 100, 50, ${alpha})`;
+        else if (type === 'purple') ctx.strokeStyle = `rgba(200, 100, 255, ${alpha})`;
+        
+        ctx.lineCap = 'round';
+        if (j === 0) { ctx.shadowColor = colorEdge; ctx.shadowBlur = 15; }
+        else { ctx.shadowBlur = 0; }
+        
+        ctx.stroke();
+      }
+      
+      ctx.beginPath();
+      ctx.ellipse(0, 0, radiusX, radiusY, ellipseRot, 0, Math.PI * 2);
+      ctx.lineWidth = type === 'purple' ? 2 : 1.5;
+      if (type === 'blue') ctx.strokeStyle = `rgba(50, 150, 255, ${powerScale * 0.2})`;
+      else if (type === 'red') ctx.strokeStyle = `rgba(255, 50, 0, ${powerScale * 0.2})`;
+      else if (type === 'purple') ctx.strokeStyle = `rgba(150, 0, 255, ${powerScale * 0.4})`;
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+    
+    ctx.fillStyle = type === 'purple' ? '#050010' : '#ffffff';
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = colorEdge;
+    ctx.beginPath(); ctx.arc(x, y, r * 0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  };
+
+  const pulse = 1 + Math.sin(t * 0.015) * 0.1;
+
+  if (power < 0.4) {
+    const p = power / 0.4;
+    const size = 30 + p * 20;
+    
+    draw3DOrb(leftX, leftY, size * pulse, 'red', p);
+    draw3DOrb(rightX, rightY, size * pulse, 'blue', p);
+
+  } else if (power < 0.7) {
+    const p = (power - 0.4) / 0.3;
+    const ease = p * p * p; 
+    const shake = p * 15;
+    
+    const curLeftX = leftX + (centerX - leftX) * ease + (Math.random()-0.5)*shake;
+    const curLeftY = leftY + (centerY - leftY) * ease + (Math.random()-0.5)*shake;
+    
+    const curRightX = rightX + (centerX - rightX) * ease + (Math.random()-0.5)*shake;
+    const curRightY = rightY + (centerY - rightY) * ease + (Math.random()-0.5)*shake;
+    
+    const size = 50 + p * 15;
+    
+    draw3DOrb(curLeftX, curLeftY, size * pulse, 'red', 1);
+    draw3DOrb(curRightX, curRightY, size * pulse, 'blue', 1);
+
+    if (Math.random() > 0.2) {
+      ctx.strokeStyle = `rgba(180, 50, 255, ${p})`;
+      ctx.lineWidth = 4 + p * 6;
+      ctx.beginPath();
+      ctx.moveTo(curLeftX, curLeftY);
+      ctx.lineTo((curLeftX+curRightX)/2 + (Math.random()-0.5)*100, (curLeftY+curRightY)/2 + (Math.random()-0.5)*100);
+      ctx.lineTo(curRightX, curRightY);
+      ctx.stroke();
+    }
+
+  } else if (power < 0.95) {
+    const p = (power - 0.7) / 0.25;
+    const size = 70 + p * 40;
+    
+    ctx.translate((Math.random()-0.5)*15, (Math.random()-0.5)*15);
+    
+    draw3DOrb(centerX, centerY, size, 'purple', 1);
+
+  } else {
+    ctx.translate((Math.random()-0.5)*20, (Math.random()-0.5)*20);
+    
+    const pulseHeld = 1 + Math.sin(t * 0.05) * 0.1;
+    draw3DOrb(centerX, centerY, 110 * pulseHeld, 'purple', 1);
+
+    const bloom = ctx.createRadialGradient(centerX, centerY, 100, centerX, centerY, w * 0.8);
+    bloom.addColorStop(0, `rgba(200, 100, 255, 0.3)`);
+    bloom.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bloom;
+    ctx.beginPath(); ctx.arc(centerX, centerY, w * 0.8, 0, Math.PI * 2); ctx.fill();
+    
+    const ringT = (t * 0.003) % 1; 
+    ctx.strokeStyle = `rgba(255, 150, 255, ${(1 - ringT) * 0.6})`;
+    ctx.lineWidth = 30 * (1 - ringT);
+    ctx.beginPath(); ctx.arc(centerX, centerY, ringT * w * 0.6, 0, Math.PI * 2); ctx.stroke();
   }
 
   ctx.restore();
@@ -251,7 +396,6 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   
-  // 1. World Tint, Vignette, Flicker
   ctx.globalAlpha = power * 0.8;
   ctx.fillStyle = 'rgba(20, 0, 0, 1)';
   ctx.fillRect(0, 0, w, h);
@@ -267,7 +411,6 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
      ctx.fillRect(0, 0, w, h);
   }
 
-  // 2. Giant 3D Shrine Gate (Far Behind)
   ctx.save();
   const plxX = (cx - w/2) * 0.1;
   const plxY = (cy - h/2) * 0.1;
@@ -284,10 +427,10 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
   const gateW = 1200;
   const gateH = 1000;
   
-  ctx.fillRect(-gateW*0.3, -gateH*0.4, gateW*0.08, gateH); // Left pillar
-  ctx.fillRect(gateW*0.22, -gateH*0.4, gateW*0.08, gateH); // Right pillar
-  ctx.fillRect(-gateW*0.4, -gateH*0.2, gateW*0.8, gateH*0.08); // Lower crossbeam
-  ctx.fillRect(-gateW*0.45, -gateH*0.4, gateW*0.9, gateH*0.1); // Upper crossbeam
+  ctx.fillRect(-gateW*0.3, -gateH*0.4, gateW*0.08, gateH); 
+  ctx.fillRect(gateW*0.22, -gateH*0.4, gateW*0.08, gateH); 
+  ctx.fillRect(-gateW*0.4, -gateH*0.2, gateW*0.8, gateH*0.08); 
+  ctx.fillRect(-gateW*0.45, -gateH*0.4, gateW*0.9, gateH*0.1); 
   
   ctx.beginPath();
   ctx.moveTo(-gateW*0.5, -gateH*0.4);
@@ -297,9 +440,8 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
   ctx.fill();
   ctx.restore();
 
-  // 3. Ground Cracks
   ctx.save();
-  ctx.translate(w/2, h); // bottom center
+  ctx.translate(w/2, h); 
   ctx.globalAlpha = power * 0.9;
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 4;
@@ -315,7 +457,6 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
   }
   ctx.restore();
 
-  // 4. Pressure Pulse / Demonic Core
   ctx.globalAlpha = 1;
   const r = 110 * power + Math.sin(t * 0.01) * 8;
   const cg = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.5);
@@ -324,9 +465,6 @@ function drawSukunaAura(ctx, cx, cy, power, t) {
   cg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = cg; 
   ctx.beginPath(); ctx.arc(cx, cy, r * 2.5, 0, Math.PI * 2); ctx.fill();
-
-  // 5. Text Flash
-  // (Removed as requested)
 
   ctx.restore();
 }
@@ -344,7 +482,6 @@ function getGesture(pts) {
 function isSukunaSign(hands) {
   if (hands.length < 2) return false;
 
-  // Check all pairs of hands if multiple people are in frame
   for (let i = 0; i < hands.length; i++) {
     for (let j = i + 1; j < hands.length; j++) {
       const h1 = hands[i], h2 = hands[j];
@@ -367,230 +504,243 @@ function isSukunaSign(hands) {
 function JJK({ onBack }) {
   const vRef = useRef(null);
   const cRef = useRef(null);
-  const efxRef = useRef(null); // particle canvas
+  const efxRef = useRef(null);
   const flashRef = useRef(null);
   const hintRef = useRef(null);
 
-  const [loadingMsg, setLoadingMsg] = useState('Expanding Domain…');
-  const [isLoading, setIsLoading] = useState(true);
-  const [pwrGojo, setPwrGojo] = useState(0);
+  const [pwrRed, setPwrRed] = useState(0);
+  const [pwrBlue, setPwrBlue] = useState(0);
+  const [pwrPurple, setPwrPurple] = useState(0);
   const [pwrSukuna, setPwrSukuna] = useState(0);
-  const [activeGojo, setActiveGojo] = useState(false);
+  const [activeRed, setActiveRed] = useState(false);
+  const [activeBlue, setActiveBlue] = useState(false);
+  const [activePurple, setActivePurple] = useState(false);
   const [activeSukuna, setActiveSukuna] = useState(false);
 
-  useEffect(() => {
+  const stateRef = useRef({
+    pwr: { red: 0, blue: 0, purple: 0, sukuna: 0 },
+    wasActive: { red: false, blue: false, purple: false, sukuna: false },
+    hintHidden: false,
+    lastResize: 0,
+    redParticles: [],
+    blueParticles: [],
+    sukunaParticles: [],
+    lastPurplePos: null
+  });
+
+  const onResults = useCallback((res) => {
     const vEl = vRef.current;
     const cEl = cRef.current;
-    const ctx = cEl.getContext('2d');
     const efx = efxRef.current;
+    if (!vEl || !cEl || !efx) return;
+
+    const ctx = cEl.getContext('2d');
     const efxCtx = efx.getContext('2d');
     const flash = flashRef.current;
     const hint = hintRef.current;
+    const st = stateRef.current;
 
-    let pwr = { gojo: 0, sukuna: 0 };
-    let wasActive = { gojo: false, sukuna: false };
-    let hintHidden = false;
-    let lastResize = 0;
-
-    // Particle pools
-    const gojoParticles = [];
-    const sukunaParticles = [];
-
-    // Hand positions for aura rendering
-    let gojoPos = null;
-    let sukunaPos = null;
-
-    function triggerFlash(type) {
-      flash.className = '';
-      void flash.offsetWidth;
-      flash.className = type === 'gojo' ? 'flash-gojo' : 'flash-sukuna';
-      if (type === 'gojo') playGojo(); else playSukuna();
+    const now = Date.now();
+    if (now - st.lastResize > 250) {
+      cEl.width = vEl.videoWidth || window.innerWidth;
+      cEl.height = vEl.videoHeight || window.innerHeight;
+      efx.width = cEl.width;
+      efx.height = cEl.height;
+      st.lastResize = now;
     }
 
-    function onResults(res) {
-      const now = Date.now();
-      if (now - lastResize > 250) {
-        cEl.width = vEl.videoWidth || window.innerWidth;
-        cEl.height = vEl.videoHeight || window.innerHeight;
-        efx.width = cEl.width;
-        efx.height = cEl.height;
-        lastResize = now;
+    ctx.save(); ctx.clearRect(0, 0, cEl.width, cEl.height);
+
+    let foundRedHand = null;
+    let foundBlueHand = null;
+    let foundSukunaHand = false;
+
+    if (res.multiHandLandmarks && res.multiHandedness) {
+      if (res.multiHandLandmarks.length > 0 && !st.hintHidden) {
+        st.hintHidden = true; if (hint) hint.classList.add('hidden');
       }
 
-      ctx.save(); ctx.clearRect(0, 0, cEl.width, cEl.height);
+      const isSukuna = isSukunaSign(res.multiHandLandmarks);
+      const drawingUtils = new DrawingUtils(ctx);
 
-      let foundGojoHand = null;
-      let foundSukunaHand = false;
-
-      if (res.multiHandLandmarks && res.multiHandedness) {
-        if (res.multiHandLandmarks.length > 0 && !hintHidden) {
-          hintHidden = true; hint.classList.add('hidden');
+      res.multiHandLandmarks.forEach((pts) => {
+        let gesture = null;
+        if (isSukuna) { gesture = 'sukuna'; foundSukunaHand = true; }
+        else { 
+          gesture = getGesture(pts); 
+          if (gesture === 'gojo') {
+             const cx = (1 - pts[9].x) * cEl.width;
+             if (cx < cEl.width / 2) {
+               foundRedHand = pts;
+               gesture = 'red';
+             } else {
+               foundBlueHand = pts;
+               gesture = 'blue';
+             }
+          } 
         }
 
-        const isSukuna = isSukunaSign(res.multiHandLandmarks);
-        const drawingUtils = new DrawingUtils(ctx);
+        ctx.save();
+        if (gesture === 'sukuna') {
+          ctx.shadowBlur = 16; ctx.shadowColor = '#ff0000';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ff3333', lineWidth: 3 });
+        } else if (gesture === 'red') {
+          ctx.shadowBlur = 20; ctx.shadowColor = '#ff0000';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ff4422', lineWidth: 3 });
+        } else if (gesture === 'blue') {
+          ctx.shadowBlur = 20; ctx.shadowColor = '#0088ff';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#22aaff', lineWidth: 3 });
+        } else {
+          ctx.shadowBlur = 10; ctx.shadowColor = '#ffffff';
+          drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: 'rgba(255,255,255,0.35)', lineWidth: 2 });
+        }
+        
+        drawingUtils.drawLandmarks(pts, { color: '#ffffff', lineWidth: 1, radius: 2 });
+        ctx.restore();
+      });
+    }
 
-        res.multiHandLandmarks.forEach((pts) => {
-          let gesture = null;
-          if (isSukuna) { gesture = 'sukuna'; foundSukunaHand = true; }
-          else { 
-            gesture = getGesture(pts); 
-            if (gesture === 'gojo') foundGojoHand = pts; 
-          }
+    const foundPurpleHands = (foundRedHand && foundBlueHand);
 
-          ctx.save();
-          if (gesture === 'sukuna') {
-            ctx.shadowBlur = 16; ctx.shadowColor = '#ff0000';
-            drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ff3333', lineWidth: 3 });
-          } else if (gesture === 'gojo') {
-            ctx.shadowBlur = 20; ctx.shadowColor = '#ff0000';
-            drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: '#ff4422', lineWidth: 3 });
-          } else {
-            ctx.shadowBlur = 10; ctx.shadowColor = '#ffffff';
-            drawingUtils.drawConnectors(pts, HandLandmarker.HAND_CONNECTIONS, { color: 'rgba(255,255,255,0.35)', lineWidth: 2 });
-          }
-          drawingUtils.drawLandmarks(pts, { color: '#ffffff', lineWidth: 1, radius: 2 });
-          ctx.restore();
-        });
-      }
+    function triggerFlash(type) {
+      if (!flash) return;
+      flash.className = '';
+      void flash.offsetWidth;
+      flash.className = type === 'red' || type === 'blue' ? 'flash-gojo' : (type === 'purple' ? 'flash-purple' : 'flash-sukuna');
+      if (type === 'red' || type === 'blue') playGojo(); 
+      else if (type === 'purple') playPurple();
+      else playSukuna();
+    }
 
-      // Gojo power (Reversal: Red)
-      if (foundGojoHand) {
-        if (!wasActive.gojo) { triggerFlash('gojo'); }
-        pwr.gojo = Math.min(1, pwr.gojo + 0.04);
-        wasActive.gojo = true;
-        // Position: 3-8cm above the midpoint of index and middle tip
-        const t8 = foundGojoHand[8], t12 = foundGojoHand[12], wrist = foundGojoHand[0];
+    let redPos = null;
+    let bluePos = null;
+    let sukunaPos = null;
 
-        // Estimate hand size to scale the offset properly (wrist to index tip distance)
-        const handSize = Math.hypot(t8.x - wrist.x, t8.y - wrist.y);
-        const offsetY = handSize * 0.3 * cEl.height; // Hovers just slightly above fingertips
+    if (foundRedHand) {
+       const t8 = foundRedHand[8], t12 = foundRedHand[12], wrist = foundRedHand[0];
+       const handSize = Math.hypot(t8.x - wrist.x, t8.y - wrist.y);
+       redPos = { x: (1 - (t8.x + t12.x) / 2) * cEl.width, y: ((t8.y + t12.y) / 2) * cEl.height - handSize * 0.3 * cEl.height };
+    }
+    if (foundBlueHand) {
+       const t8 = foundBlueHand[8], t12 = foundBlueHand[12], wrist = foundBlueHand[0];
+       const handSize = Math.hypot(t8.x - wrist.x, t8.y - wrist.y);
+       bluePos = { x: (1 - (t8.x + t12.x) / 2) * cEl.width, y: ((t8.y + t12.y) / 2) * cEl.height - handSize * 0.3 * cEl.height };
+    }
 
-        gojoPos = {
-          x: (1 - (t8.x + t12.x) / 2) * cEl.width,
-          y: ((t8.y + t12.y) / 2) * cEl.height - offsetY
-        };
-        const count = Math.floor(pwr.gojo * 4) + 1; // lightweight burst
-        for (let i = 0; i < count; i++) gojoParticles.push(new GojoSparkParticle(gojoPos.x, gojoPos.y, pwr.gojo));
+    if (foundPurpleHands && !foundSukunaHand) {
+      if (!st.wasActive.purple) { triggerFlash('purple'); }
+      st.pwr.purple = Math.min(1, st.pwr.purple + 0.01);
+      st.wasActive.purple = true;
+      st.lastPurplePos = { red: redPos, blue: bluePos };
+      
+      st.pwr.red = Math.max(0, st.pwr.red - 0.1);
+      st.pwr.blue = Math.max(0, st.pwr.blue - 0.1);
+      st.pwr.sukuna = Math.max(0, st.pwr.sukuna - 0.1);
+    } else {
+      st.pwr.purple = Math.max(0, st.pwr.purple - 0.03);
+      if (st.pwr.purple < 0.01) st.lastPurplePos = null;
+      st.wasActive.purple = false;
+
+      if (foundRedHand && !foundSukunaHand) {
+        if (!st.wasActive.red) { triggerFlash('red'); }
+        st.pwr.red = Math.min(1, st.pwr.red + 0.04);
+        st.wasActive.red = true;
+        
+        const count = Math.floor(st.pwr.red * 4) + 1;
+        for (let i = 0; i < count; i++) st.redParticles.push(new GojoSparkParticle(redPos.x, redPos.y, st.pwr.red, false));
       } else {
-        pwr.gojo = Math.max(0, pwr.gojo - 0.04);
-        if (pwr.gojo < 0.01) gojoPos = null;
-        wasActive.gojo = false;
+        st.pwr.red = Math.max(0, st.pwr.red - 0.04);
+        st.wasActive.red = false;
       }
 
-      // Sukuna power
+      if (foundBlueHand && !foundSukunaHand) {
+        if (!st.wasActive.blue) { triggerFlash('blue'); }
+        st.pwr.blue = Math.min(1, st.pwr.blue + 0.04);
+        st.wasActive.blue = true;
+        
+        const count = Math.floor(st.pwr.blue * 4) + 1;
+        for (let i = 0; i < count; i++) st.blueParticles.push(new GojoSparkParticle(bluePos.x, bluePos.y, st.pwr.blue, true));
+      } else {
+        st.pwr.blue = Math.max(0, st.pwr.blue - 0.04);
+        st.wasActive.blue = false;
+      }
+
       if (foundSukunaHand && res.multiHandLandmarks.length >= 2) {
-        if (!wasActive.sukuna) { triggerFlash('sukuna'); }
-        pwr.sukuna = Math.min(1, pwr.sukuna + 0.04);
-        wasActive.sukuna = true;
+        if (!st.wasActive.sukuna) { triggerFlash('sukuna'); }
+        st.pwr.sukuna = Math.min(1, st.pwr.sukuna + 0.04);
+        st.wasActive.sukuna = true;
         const w1 = res.multiHandLandmarks[0][0], w2 = res.multiHandLandmarks[1][0];
         sukunaPos = { x: (1 - (w1.x + w2.x) / 2) * cEl.width, y: ((w1.y + w2.y) / 2) * cEl.height };
-        const count = Math.floor(pwr.sukuna * 7) + 2;
-        for (let i = 0; i < count; i++) sukunaParticles.push(new SukunaParticle(sukunaPos.x, sukunaPos.y, pwr.sukuna));
+        const count = Math.floor(st.pwr.sukuna * 7) + 2;
+        for (let i = 0; i < count; i++) st.sukunaParticles.push(new SukunaParticle(sukunaPos.x, sukunaPos.y, st.pwr.sukuna));
       } else {
-        pwr.sukuna = Math.max(0, pwr.sukuna - 0.04);
-        if (pwr.sukuna < 0.01) sukunaPos = null;
-        wasActive.sukuna = false;
-      }
-
-      // Draw effects canvas
-      const t = performance.now();
-      efxCtx.clearRect(0, 0, efx.width, efx.height);
-
-      // SCREEN SHAKE
-      if (pwr.gojo > 0.72) {
-        const shakeAmt = (pwr.gojo - 0.72) / 0.28 * 4;
-        const sx = (Math.random() - 0.5) * shakeAmt;
-        const sy = (Math.random() - 0.5) * shakeAmt;
-        efxCtx.translate(sx, sy);
-      } else if (pwr.sukuna > 0.05 && pwr.sukuna < 0.4) {
-        // Pressure pulse camera shake on domain activation
-        const shakeAmt = (0.4 - pwr.sukuna) * 20;
-        const sx = (Math.random() - 0.5) * shakeAmt;
-        const sy = (Math.random() - 0.5) * shakeAmt;
-        efxCtx.translate(sx, sy);
-      }
-
-      // Draw auras
-      if (gojoPos) drawGojoRedAura(efxCtx, gojoPos.x, gojoPos.y, pwr.gojo, t);
-      if (sukunaPos) drawSukunaAura(efxCtx, sukunaPos.x, sukunaPos.y, pwr.sukuna, t);
-
-      // Update & draw Gojo particles
-      for (let i = gojoParticles.length - 1; i >= 0; i--) {
-        gojoParticles[i].update();
-        gojoParticles[i].draw(efxCtx);
-        if (gojoParticles[i].life <= 0) gojoParticles.splice(i, 1);
-      }
-      // Limit pool size
-      if (gojoParticles.length > 300) gojoParticles.splice(0, gojoParticles.length - 300);
-
-      // Update & draw Sukuna particles
-      for (let i = sukunaParticles.length - 1; i >= 0; i--) {
-        sukunaParticles[i].update();
-        sukunaParticles[i].draw(efxCtx);
-        if (sukunaParticles[i].life <= 0) sukunaParticles.splice(i, 1);
-      }
-      if (sukunaParticles.length > 400) sukunaParticles.splice(0, sukunaParticles.length - 400);
-
-      setPwrGojo(pwr.gojo);
-      setPwrSukuna(pwr.sukuna);
-      setActiveGojo(wasActive.gojo);
-      setActiveSukuna(wasActive.sukuna);
-      updateJutsuAudio(pwr.gojo, pwr.sukuna);
-      ctx.restore();
-    }
-
-    let handLandmarker = null;
-    let animationId = null;
-    let lastVideoTime = -1;
-
-    async function initVision() {
-      const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-      );
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numHands: 4,
-        minHandDetectionConfidence: 0.75,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 } });
-        vEl.srcObject = stream;
-        vEl.addEventListener('loadeddata', predictWebcam);
-        setLoadingMsg('Cursed Energy Online!');
-        setTimeout(() => setIsLoading(false), 200);
-      } catch {
-        setLoadingMsg('⚠ Camera access denied.');
+        st.pwr.sukuna = Math.max(0, st.pwr.sukuna - 0.04);
+        if (st.pwr.sukuna < 0.01) sukunaPos = null;
+        st.wasActive.sukuna = false;
       }
     }
 
-    function predictWebcam() {
-      if (!vEl || vEl.paused || vEl.ended) return;
-      if (vEl.currentTime !== lastVideoTime && handLandmarker) {
-        lastVideoTime = vEl.currentTime;
-        const results = handLandmarker.detectForVideo(vEl, performance.now());
-        onResults({
-          multiHandLandmarks: results.landmarks,
-          multiHandedness: results.handednesses.map(h => ({ label: h[0].categoryName }))
-        });
-      }
-      animationId = requestAnimationFrame(predictWebcam);
+    const t = performance.now();
+    efxCtx.clearRect(0, 0, efx.width, efx.height);
+
+    if (st.pwr.red > 0.72 && st.pwr.purple === 0) {
+      const shakeAmt = (st.pwr.red - 0.72) / 0.28 * 4;
+      efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
+    } else if (st.pwr.blue > 0.72 && st.pwr.purple === 0) {
+      const shakeAmt = (st.pwr.blue - 0.72) / 0.28 * 4;
+      efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
+    } else if (st.pwr.sukuna > 0.05 && st.pwr.sukuna < 0.4 && st.pwr.purple === 0) {
+      const shakeAmt = (0.4 - st.pwr.sukuna) * 20;
+      efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
     }
 
-    initVision();
+    if (redPos && st.pwr.purple === 0) drawGojoAura(efxCtx, redPos.x, redPos.y, st.pwr.red, t, false);
+    if (bluePos && st.pwr.purple === 0) drawGojoAura(efxCtx, bluePos.x, bluePos.y, st.pwr.blue, t, true);
+    if (sukunaPos && st.pwr.purple === 0) drawSukunaAura(efxCtx, sukunaPos.x, sukunaPos.y, st.pwr.sukuna, t);
+    
+    if (st.pwr.purple > 0) {
+      drawHollowPurpleCinematic(efxCtx, efx.width, efx.height, st.lastPurplePos, st.pwr.purple, t);
+    }
 
+    for (let i = st.redParticles.length - 1; i >= 0; i--) {
+      st.redParticles[i].update();
+      st.redParticles[i].draw(efxCtx);
+      if (st.redParticles[i].life <= 0) st.redParticles.splice(i, 1);
+    }
+    if (st.redParticles.length > 200) st.redParticles.splice(0, st.redParticles.length - 200);
+
+    for (let i = st.blueParticles.length - 1; i >= 0; i--) {
+      st.blueParticles[i].update();
+      st.blueParticles[i].draw(efxCtx);
+      if (st.blueParticles[i].life <= 0) st.blueParticles.splice(i, 1);
+    }
+    if (st.blueParticles.length > 200) st.blueParticles.splice(0, st.blueParticles.length - 200);
+
+    for (let i = st.sukunaParticles.length - 1; i >= 0; i--) {
+      st.sukunaParticles[i].update();
+      st.sukunaParticles[i].draw(efxCtx);
+      if (st.sukunaParticles[i].life <= 0) st.sukunaParticles.splice(i, 1);
+    }
+    if (st.sukunaParticles.length > 400) st.sukunaParticles.splice(0, st.sukunaParticles.length - 400);
+
+    setPwrRed(st.pwr.red);
+    setPwrBlue(st.pwr.blue);
+    setPwrPurple(st.pwr.purple);
+    setPwrSukuna(st.pwr.sukuna);
+    setActiveRed(st.wasActive.red);
+    setActiveBlue(st.wasActive.blue);
+    setActivePurple(st.wasActive.purple);
+    setActiveSukuna(st.wasActive.sukuna);
+    
+    updateJutsuAudio(Math.max(st.pwr.red, st.pwr.blue), st.pwr.purple, st.pwr.sukuna);
+    ctx.restore();
+  }, []);
+
+  const { isLoading, loadingMsg } = useHandTracking(vRef, onResults);
+
+  useEffect(() => {
     return () => {
-      if (animationId) cancelAnimationFrame(animationId);
-      if (vEl?.srcObject) vEl.srcObject.getTracks().forEach(t => t.stop());
-      if (handLandmarker) handLandmarker.close();
-      gAudio.pause(); sAudio.pause();
+      gAudio.pause(); pAudio.pause(); sAudio.pause();
     };
   }, []);
 
@@ -611,8 +761,7 @@ function JJK({ onBack }) {
 
       <video id="v_src" ref={vRef} autoPlay playsInline></video>
       <canvas id="out" ref={cRef}></canvas>
-      {/* Particle / Effect canvas on top */}
-      <canvas id="efx" ref={efxRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}></canvas>
+      <canvas id="efx" ref={efxRef} style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', objectFit: 'cover', pointerEvents: 'none' }}></canvas>
       <div className="darkness jjk-darkness"></div>
 
       <div id="flash" ref={flashRef}></div>
@@ -625,25 +774,38 @@ function JJK({ onBack }) {
         <span className="hint-hand">🤞</span>
         <div className="hint-text">Show a Hand Sign to trigger Cursed Energy</div>
         <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px' }}>
-          1 Hand Peace Sign = Gojo &nbsp;|&nbsp; 2 Hands Clasped = Sukuna
+          Right Hand Peace = Reversal Red &nbsp;|&nbsp; Left Hand Peace = Lapse Blue &nbsp;|&nbsp; Both = Hollow Purple
         </div>
       </div>
 
-      <div id="hud" className="dynamic-hud">
-        {activeGojo && (
+      <div id="hud" className="dynamic-hud" style={{ display: activePurple ? 'none' : 'flex' }}>
+        {activeRed && !activePurple && (
           <div className="power-card gojo-card">
             <div className="power-header">
               <span className="power-icon">✌️</span>
               <span className="power-name">REVERSAL RED</span>
-              <span className="power-pct">{Math.round(pwrGojo * 100)}%</span>
+              <span className="power-pct">{Math.round(pwrRed * 100)}%</span>
             </div>
             <div className="power-bar-bg">
-              <div className="power-bar-fill" style={{ width: `${Math.round(pwrGojo * 100)}%` }}></div>
+              <div className="power-bar-fill" style={{ width: `${Math.round(pwrRed * 100)}%` }}></div>
             </div>
-            {pwrGojo > 0.9 && <div className="power-ready">READY TO RELEASE</div>}
+            {pwrRed > 0.9 && <div className="power-ready">READY TO RELEASE</div>}
           </div>
         )}
-        {activeSukuna && (
+        {activeBlue && !activePurple && (
+          <div className="power-card gojo-card" style={{ borderColor: '#0088ff' }}>
+            <div className="power-header">
+              <span className="power-icon">✌️</span>
+              <span className="power-name" style={{ color: '#0088ff' }}>LAPSE BLUE</span>
+              <span className="power-pct">{Math.round(pwrBlue * 100)}%</span>
+            </div>
+            <div className="power-bar-bg">
+              <div className="power-bar-fill" style={{ width: `${Math.round(pwrBlue * 100)}%`, background: '#0088ff', boxShadow: '0 0 10px #0088ff' }}></div>
+            </div>
+            {pwrBlue > 0.9 && <div className="power-ready" style={{ color: '#0088ff', textShadow: '0 0 8px #0088ff' }}>READY TO RELEASE</div>}
+          </div>
+        )}
+        {activeSukuna && !activePurple && (
           <div className="power-card sukuna-card">
             <div className="power-header">
               <span className="power-icon">🙏</span>
