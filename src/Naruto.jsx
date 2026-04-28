@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
 import { useHandTracking } from './hooks/useHandTracking';
+import CinematicTitle from './components/CinematicTitle';
 import './index.css';
 
 const rAudio = new SFXPlayer('/assets/Audios/rasengan.mp3');
@@ -31,6 +32,8 @@ function Naruto({ onBack }) {
   const [pwrR, setPwrR] = useState(0);
   const [openL, setOpenL] = useState(false);
   const [openR, setOpenR] = useState(false);
+  const [activeTitle, setActiveTitle] = useState(null);
+  const lastState = useRef({ n: false, s: false });
 
   // We use Refs for power and state inside the onResults callback so we don't have to recreate it
   const stateRef = useRef({
@@ -181,8 +184,16 @@ function Naruto({ onBack }) {
 
     setPwrL(st.pwr[0]);
     setPwrR(st.pwr[1]);
-    setOpenL(st.wasOpen[0]);
-    setOpenR(st.wasOpen[1]);
+    setOpenL(st.pwr[0] > 0.01);
+    setOpenR(st.pwr[1] > 0.01);
+    
+    const nOn = st.pwr[0] > 0.9;
+    const sOn = st.pwr[1] > 0.9;
+    
+    if (nOn && !lastState.current.n) setActiveTitle({ id: Date.now(), type: 'rasengan' });
+    if (sOn && !lastState.current.s) setActiveTitle({ id: Date.now() + 1, type: 'chidori' });
+    
+    lastState.current = { n: nOn, s: sOn };
 
     updateJutsuAudio(st.pwr[0], st.pwr[1]);
     
@@ -200,7 +211,6 @@ function Naruto({ onBack }) {
 
   return (
     <div className="ar-container">
-      {/* LOADING */}
       <div id="loading-screen" className={isLoading ? '' : 'hidden'}>
         <div className="loader-ring">
           <div className="loader-ring-inner">
@@ -214,57 +224,48 @@ function Naruto({ onBack }) {
 
       <button className="back-btn" onClick={onBack}>← Back</button>
 
-      {/* SCENE */}
       <video id="v_src" ref={vRef} autoPlay playsInline></video>
       <canvas id="out" ref={cRef}></canvas>
       <div className="darkness"></div>
 
-      {/* FLASH */}
       <div id="flash" ref={flashRef}></div>
 
-      {/* JUTSU VIDEOS */}
       <video id="n" ref={nVidRef} className="fx" src="/assets/naruto.mp4" muted autoPlay loop playsInline></video>
       <video id="s" ref={sVidRef} className="fx" src="/assets/sasuke.mp4" muted autoPlay loop playsInline></video>
 
-      {/* TOP BADGE */}
       <div id="top-badge">
         <div className="badge-title">✦ Jutsu Mode Active ✦</div>
       </div>
 
-      {/* HINT */}
       <div id="hint" ref={hintRef}>
         <span className="hint-hand">🖐️</span>
         <div className="hint-text">Open your hands to unleash jutsu</div>
-      </div>
-
-      {/* HUD */}
-      <div id="hud">
-        {/* LEFT: Naruto / Rasengan */}
-        <div className="chakra-panel left">
-          <div className="hand-label">Left Hand</div>
-          <div className="jutsu-name col-n">⚡ Rasengan</div>
-          <div className="bar-row">
-            <div className={`dot ${openL ? 'on-n' : ''}`}></div>
-            <div className="bar-bg">
-              <div className="bar-fill bar-n" style={{ width: `${Math.round(pwrL * 100)}%` }}></div>
-            </div>
-            <span className="pct col-n">{Math.round(pwrL * 100)}%</span>
-          </div>
-        </div>
-
-        {/* RIGHT: Sasuke / Chidori */}
-        <div className="chakra-panel right">
-          <div className="hand-label">Right Hand</div>
-          <div className="jutsu-name col-s">⚡ Chidori</div>
-          <div className="bar-row">
-            <span className="pct col-s">{Math.round(pwrR * 100)}%</span>
-            <div className="bar-bg">
-              <div className="bar-fill bar-s" style={{ width: `${Math.round(pwrR * 100)}%` }}></div>
-            </div>
-            <div className={`dot ${openR ? 'on-s' : ''}`}></div>
-          </div>
+        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', marginTop: '8px', lineHeight: '1.4' }}>
+          Left Hand Open = <b>Rasengan</b> &nbsp;|&nbsp; Right Hand Open = <b>Chidori</b>
         </div>
       </div>
+
+      {/* CINEMATIC TITLE POPUP */}
+      {activeTitle && activeTitle.type === 'rasengan' && (
+        <CinematicTitle
+          key={activeTitle.id}
+          kanji="螺旋丸"
+          subtitle="RASENGAN"
+          color="#88ccff"
+          onDone={() => setActiveTitle(null)}
+          isActive={openL}
+        />
+      )}
+      {activeTitle && activeTitle.type === 'chidori' && (
+        <CinematicTitle
+          key={activeTitle.id}
+          kanji="千鳥"
+          subtitle="CHIDORI"
+          color="#cc88ff"
+          onDone={() => setActiveTitle(null)}
+          isActive={openR}
+        />
+      )}
     </div>
   );
 }

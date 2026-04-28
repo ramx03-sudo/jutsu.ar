@@ -2,39 +2,56 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
 import { useHandTracking } from './hooks/useHandTracking';
+import CinematicTitle from './components/CinematicTitle';
 import './index.css';
 import './hud.css';
 
 const gAudio = new SFXPlayer('/assets/Audios/gojo-reversal-red.mp3');
+const bAudio = new SFXPlayer('/assets/Audios/gojo-lapse-blue.mp3');
 const pAudio = new SFXPlayer('/assets/Audios/gojo_domain_expansion.mp3'); 
 const sAudio = new SFXPlayer('/assets/Audios/malevolent_shrine.mp3');
 
 function playGojo() { gAudio.play(); }
+function playBlue() { bAudio.play(); }
 function playPurple() { pAudio.play(); }
 function playSukuna() { sAudio.play(); }
 
-function updateJutsuAudio(pg, pp, ps) {
-  const targetG = pg > 0.01 ? pg * 1.0 : 0;
-  const targetP = pp > 0.01 ? pp * 1.0 : 0;
-  const targetS = ps > 0.01 ? ps * 0.8 : 0;
+function updateJutsuAudio(activeR, activeB, activeP, activeS) {
+  const targetR = activeR ? 1.0 : 0;
+  const targetB = activeB ? 1.0 : 0;
+  const targetP = activeP ? 1.0 : 0;
+  const targetS = activeS ? 0.8 : 0;
 
-  let nextGVol = gAudio.logicalVolume;
-  if (nextGVol < targetG) nextGVol = Math.min(1.0, targetG);
-  else nextGVol = Math.max(0, nextGVol - 0.01);
-
+  let nextRVol = gAudio.logicalVolume;
+  let nextBVol = bAudio.logicalVolume;
   let nextPVol = pAudio.logicalVolume;
-  if (nextPVol < targetP) nextPVol = Math.min(1.0, targetP);
-  else nextPVol = Math.max(0, nextPVol - 0.01);
-
   let nextSVol = sAudio.logicalVolume;
-  if (nextSVol < targetS) nextSVol = Math.min(1.0, targetS);
-  else nextSVol = Math.max(0, nextSVol - 0.02);
 
-  if (nextGVol > 0) gAudio.setVolume(nextGVol);
+  if (nextRVol < targetR) nextRVol = Math.min(1.0, targetR);
+  else nextRVol = Math.max(0, nextRVol - 0.1);
+
+  if (nextBVol < targetB) nextBVol = Math.min(1.0, targetB);
+  else nextBVol = Math.max(0, nextBVol - 0.1);
+
+  if (nextPVol < targetP) nextPVol = Math.min(1.0, targetP);
+  else nextPVol = Math.max(0, nextPVol - 0.1);
+
+  if (nextSVol < targetS) nextSVol = Math.min(1.0, targetS);
+  else nextSVol = Math.max(0, nextSVol - 0.1);
+
+  if (targetP > 0) {
+    nextRVol = 0; nextBVol = 0; nextSVol = 0;
+  } else if (targetS > 0) {
+    nextRVol = 0; nextBVol = 0; nextPVol = 0;
+  }
+
+  if (nextRVol > 0) gAudio.setVolume(nextRVol);
+  if (nextBVol > 0) bAudio.setVolume(nextBVol);
   if (nextPVol > 0) pAudio.setVolume(nextPVol);
   if (nextSVol > 0) sAudio.setVolume(nextSVol);
 
-  if (nextGVol <= 0.01 && gAudio.isPlaying) gAudio.pause();
+  if (nextRVol <= 0.01 && gAudio.isPlaying) gAudio.pause();
+  if (nextBVol <= 0.01 && bAudio.isPlaying) bAudio.pause();
   if (nextPVol <= 0.01 && pAudio.isPlaying) pAudio.pause();
   if (nextSVol <= 0.01 && sAudio.isPlaying) sAudio.pause();
 }
@@ -239,6 +256,9 @@ function drawHollowPurpleCinematic(ctx, w, h, positions, power, t) {
      if (positions.blue) { rightX = positions.blue.x; rightY = positions.blue.y; }
   }
 
+  const targetX = (leftX + rightX) / 2;
+  const targetY = (leftY + rightY) / 2;
+
   const draw3DOrb = (x, y, r, type, powerScale) => {
     ctx.save();
     
@@ -327,63 +347,59 @@ function drawHollowPurpleCinematic(ctx, w, h, positions, power, t) {
 
   const pulse = 1 + Math.sin(t * 0.015) * 0.1;
 
-  if (power < 0.4) {
-    const p = power / 0.4;
-    const size = 30 + p * 20;
-    
-    draw3DOrb(leftX, leftY, size * pulse, 'red', p);
-    draw3DOrb(rightX, rightY, size * pulse, 'blue', p);
-
-  } else if (power < 0.7) {
-    const p = (power - 0.4) / 0.3;
+  if (power < 0.5) {
+    return; // Phase 1 is handled by the regular red/blue aura rendering
+  } else if (power < 0.8) {
+    const p = (power - 0.5) / 0.3;
     const ease = p * p * p; 
     const shake = p * 15;
     
-    const curLeftX = leftX + (centerX - leftX) * ease + (Math.random()-0.5)*shake;
-    const curLeftY = leftY + (centerY - leftY) * ease + (Math.random()-0.5)*shake;
+    const curLeftX = leftX + (targetX - leftX) * ease + (Math.random()-0.5)*shake;
+    const curLeftY = leftY + (targetY - leftY) * ease + (Math.random()-0.5)*shake;
     
-    const curRightX = rightX + (centerX - rightX) * ease + (Math.random()-0.5)*shake;
-    const curRightY = rightY + (centerY - rightY) * ease + (Math.random()-0.5)*shake;
+    const curRightX = rightX + (targetX - rightX) * ease + (Math.random()-0.5)*shake;
+    const curRightY = rightY + (targetY - rightY) * ease + (Math.random()-0.5)*shake;
     
-    const size = 50 + p * 15;
+    const size = 50 + p * 30;
     
     draw3DOrb(curLeftX, curLeftY, size * pulse, 'red', 1);
     draw3DOrb(curRightX, curRightY, size * pulse, 'blue', 1);
 
-    if (Math.random() > 0.2) {
+    if (p > 0.3 && Math.random() > 0.2) {
       ctx.strokeStyle = `rgba(180, 50, 255, ${p})`;
       ctx.lineWidth = 4 + p * 6;
       ctx.beginPath();
       ctx.moveTo(curLeftX, curLeftY);
-      ctx.lineTo((curLeftX+curRightX)/2 + (Math.random()-0.5)*100, (curLeftY+curRightY)/2 + (Math.random()-0.5)*100);
+      ctx.lineTo(targetX + (Math.random()-0.5)*100, targetY + (Math.random()-0.5)*100);
       ctx.lineTo(curRightX, curRightY);
       ctx.stroke();
     }
 
   } else if (power < 0.95) {
-    const p = (power - 0.7) / 0.25;
-    const size = 70 + p * 40;
+    const p = (power - 0.8) / 0.15;
+    const size = 80 + p * 30;
     
     ctx.translate((Math.random()-0.5)*15, (Math.random()-0.5)*15);
     
-    draw3DOrb(centerX, centerY, size, 'purple', 1);
+    draw3DOrb(targetX, targetY, size, 'purple', 1);
 
   } else {
     ctx.translate((Math.random()-0.5)*20, (Math.random()-0.5)*20);
     
     const pulseHeld = 1 + Math.sin(t * 0.05) * 0.1;
-    draw3DOrb(centerX, centerY, 110 * pulseHeld, 'purple', 1);
+    
+    draw3DOrb(targetX, targetY, 110 * pulseHeld, 'purple', 1);
 
-    const bloom = ctx.createRadialGradient(centerX, centerY, 100, centerX, centerY, w * 0.8);
+    const bloom = ctx.createRadialGradient(targetX, targetY, 100, targetX, targetY, w * 0.8);
     bloom.addColorStop(0, `rgba(200, 100, 255, 0.3)`);
     bloom.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = bloom;
-    ctx.beginPath(); ctx.arc(centerX, centerY, w * 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(targetX, targetY, w * 0.8, 0, Math.PI * 2); ctx.fill();
     
     const ringT = (t * 0.003) % 1; 
     ctx.strokeStyle = `rgba(255, 150, 255, ${(1 - ringT) * 0.6})`;
     ctx.lineWidth = 30 * (1 - ringT);
-    ctx.beginPath(); ctx.arc(centerX, centerY, ringT * w * 0.6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(targetX, targetY, ringT * w * 0.6, 0, Math.PI * 2); ctx.stroke();
   }
 
   ctx.restore();
@@ -516,6 +532,8 @@ function JJK({ onBack }) {
   const [activeBlue, setActiveBlue] = useState(false);
   const [activePurple, setActivePurple] = useState(false);
   const [activeSukuna, setActiveSukuna] = useState(false);
+  const [activeTitle, setActiveTitle] = useState(null);
+  const lastState = useRef({ red: false, blue: false, purple: false, sukuna: false });
 
   const stateRef = useRef({
     pwr: { red: 0, blue: 0, purple: 0, sukuna: 0 },
@@ -571,11 +589,11 @@ function JJK({ onBack }) {
           if (gesture === 'gojo') {
              const cx = (1 - pts[9].x) * cEl.width;
              if (cx < cEl.width / 2) {
-               foundRedHand = pts;
-               gesture = 'red';
-             } else {
                foundBlueHand = pts;
                gesture = 'blue';
+             } else {
+               foundRedHand = pts;
+               gesture = 'red';
              }
           } 
         }
@@ -607,7 +625,8 @@ function JJK({ onBack }) {
       flash.className = '';
       void flash.offsetWidth;
       flash.className = type === 'red' || type === 'blue' ? 'flash-gojo' : (type === 'purple' ? 'flash-purple' : 'flash-sukuna');
-      if (type === 'red' || type === 'blue') playGojo(); 
+      if (type === 'red') playGojo();
+      else if (type === 'blue') playBlue();
       else if (type === 'purple') playPurple();
       else playSukuna();
     }
@@ -628,13 +647,27 @@ function JJK({ onBack }) {
     }
 
     if (foundPurpleHands && !foundSukunaHand) {
-      if (!st.wasActive.purple) { triggerFlash('purple'); }
-      st.pwr.purple = Math.min(1, st.pwr.purple + 0.01);
+      if (st.pwr.purple === 0) { triggerFlash('purple'); }
+      st.pwr.purple = Math.min(1, st.pwr.purple + 0.006);
       st.wasActive.purple = true;
       st.lastPurplePos = { red: redPos, blue: bluePos };
       
-      st.pwr.red = Math.max(0, st.pwr.red - 0.1);
-      st.pwr.blue = Math.max(0, st.pwr.blue - 0.1);
+      if (st.pwr.purple < 0.5) {
+        st.pwr.red = Math.min(1, st.pwr.red + 0.05);
+        st.pwr.blue = Math.min(1, st.pwr.blue + 0.05);
+        if (redPos) {
+          const count = Math.floor(st.pwr.red * 4) + 1;
+          for (let i = 0; i < count; i++) st.redParticles.push(new GojoSparkParticle(redPos.x, redPos.y, st.pwr.red, false));
+        }
+        if (bluePos) {
+          const count = Math.floor(st.pwr.blue * 4) + 1;
+          for (let i = 0; i < count; i++) st.blueParticles.push(new GojoSparkParticle(bluePos.x, bluePos.y, st.pwr.blue, true));
+        }
+      } else {
+        st.pwr.red = Math.max(0, st.pwr.red - 0.2);
+        st.pwr.blue = Math.max(0, st.pwr.blue - 0.2);
+      }
+      
       st.pwr.sukuna = Math.max(0, st.pwr.sukuna - 0.1);
     } else {
       st.pwr.purple = Math.max(0, st.pwr.purple - 0.03);
@@ -642,7 +675,7 @@ function JJK({ onBack }) {
       st.wasActive.purple = false;
 
       if (foundRedHand && !foundSukunaHand) {
-        if (!st.wasActive.red) { triggerFlash('red'); }
+        if (st.pwr.red === 0) { triggerFlash('red'); }
         st.pwr.red = Math.min(1, st.pwr.red + 0.04);
         st.wasActive.red = true;
         
@@ -654,7 +687,7 @@ function JJK({ onBack }) {
       }
 
       if (foundBlueHand && !foundSukunaHand) {
-        if (!st.wasActive.blue) { triggerFlash('blue'); }
+        if (st.pwr.blue === 0) { triggerFlash('blue'); }
         st.pwr.blue = Math.min(1, st.pwr.blue + 0.04);
         st.wasActive.blue = true;
         
@@ -666,7 +699,7 @@ function JJK({ onBack }) {
       }
 
       if (foundSukunaHand && res.multiHandLandmarks.length >= 2) {
-        if (!st.wasActive.sukuna) { triggerFlash('sukuna'); }
+        if (st.pwr.sukuna === 0) { triggerFlash('sukuna'); }
         st.pwr.sukuna = Math.min(1, st.pwr.sukuna + 0.04);
         st.wasActive.sukuna = true;
         const w1 = res.multiHandLandmarks[0][0], w2 = res.multiHandLandmarks[1][0];
@@ -683,20 +716,20 @@ function JJK({ onBack }) {
     const t = performance.now();
     efxCtx.clearRect(0, 0, efx.width, efx.height);
 
-    if (st.pwr.red > 0.72 && st.pwr.purple === 0) {
+    if (st.pwr.red > 0.72) {
       const shakeAmt = (st.pwr.red - 0.72) / 0.28 * 4;
       efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
-    } else if (st.pwr.blue > 0.72 && st.pwr.purple === 0) {
+    } else if (st.pwr.blue > 0.72) {
       const shakeAmt = (st.pwr.blue - 0.72) / 0.28 * 4;
       efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
-    } else if (st.pwr.sukuna > 0.05 && st.pwr.sukuna < 0.4 && st.pwr.purple === 0) {
+    } else if (st.pwr.sukuna > 0.05 && st.pwr.sukuna < 0.4) {
       const shakeAmt = (0.4 - st.pwr.sukuna) * 20;
       efxCtx.translate((Math.random() - 0.5) * shakeAmt, (Math.random() - 0.5) * shakeAmt);
     }
 
-    if (redPos && st.pwr.purple === 0) drawGojoAura(efxCtx, redPos.x, redPos.y, st.pwr.red, t, false);
-    if (bluePos && st.pwr.purple === 0) drawGojoAura(efxCtx, bluePos.x, bluePos.y, st.pwr.blue, t, true);
-    if (sukunaPos && st.pwr.purple === 0) drawSukunaAura(efxCtx, sukunaPos.x, sukunaPos.y, st.pwr.sukuna, t);
+    if (redPos && st.pwr.red > 0) drawGojoAura(efxCtx, redPos.x, redPos.y, st.pwr.red, t, false);
+    if (bluePos && st.pwr.blue > 0) drawGojoAura(efxCtx, bluePos.x, bluePos.y, st.pwr.blue, t, true);
+    if (sukunaPos && st.pwr.sukuna > 0) drawSukunaAura(efxCtx, sukunaPos.x, sukunaPos.y, st.pwr.sukuna, t);
     
     if (st.pwr.purple > 0) {
       drawHollowPurpleCinematic(efxCtx, efx.width, efx.height, st.lastPurplePos, st.pwr.purple, t);
@@ -732,7 +765,23 @@ function JJK({ onBack }) {
     setActivePurple(st.wasActive.purple);
     setActiveSukuna(st.wasActive.sukuna);
     
-    updateJutsuAudio(Math.max(st.pwr.red, st.pwr.blue), st.pwr.purple, st.pwr.sukuna);
+    const redOn = st.pwr.red > 0.9;
+    const blueOn = st.pwr.blue > 0.9;
+    const purpleOn = st.pwr.purple > 0.95;
+    const sukunaOn = st.pwr.sukuna > 0.9;
+    
+    if (purpleOn && !lastState.current.purple) setActiveTitle({ id: Date.now() + 2, type: 'purple' });
+    else if (sukunaOn && !lastState.current.sukuna) setActiveTitle({ id: Date.now() + 3, type: 'sukuna' });
+    else {
+      if (!st.wasActive.purple) {
+        if (redOn && !lastState.current.red) setActiveTitle({ id: Date.now(), type: 'red' });
+        if (blueOn && !lastState.current.blue) setActiveTitle({ id: Date.now() + 1, type: 'blue' });
+      }
+    }
+    
+    lastState.current = { red: redOn, blue: blueOn, purple: purpleOn, sukuna: sukunaOn };
+    
+    updateJutsuAudio(st.wasActive.red, st.wasActive.blue, st.wasActive.purple, st.wasActive.sukuna);
     ctx.restore();
   }, []);
 
@@ -740,7 +789,7 @@ function JJK({ onBack }) {
 
   useEffect(() => {
     return () => {
-      gAudio.pause(); pAudio.pause(); sAudio.pause();
+      gAudio.pause(); bAudio.pause(); pAudio.pause(); sAudio.pause();
     };
   }, []);
 
@@ -772,53 +821,26 @@ function JJK({ onBack }) {
 
       <div id="hint" ref={hintRef}>
         <span className="hint-hand">🤞</span>
-        <div className="hint-text">Show a Hand Sign to trigger Cursed Energy</div>
-        <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)', marginTop: '8px' }}>
-          Right Hand Peace = Reversal Red &nbsp;|&nbsp; Left Hand Peace = Lapse Blue &nbsp;|&nbsp; Both = Hollow Purple
+        <div className="hint-text">Show Hand Signs to trigger Cursed Energy</div>
+        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', marginTop: '8px', lineHeight: '1.4' }}>
+          Right Hand Peace = <b>Reversal Red</b> &nbsp;|&nbsp; Left Hand Peace = <b>Lapse Blue</b><br/>
+          Both Hands Peace = <b>Hollow Purple</b> &nbsp;|&nbsp; Both Hands Clasped = <b>Domain Expansion</b>
         </div>
       </div>
 
-      <div id="hud" className="dynamic-hud" style={{ display: activePurple ? 'none' : 'flex' }}>
-        {activeRed && !activePurple && (
-          <div className="power-card gojo-card">
-            <div className="power-header">
-              <span className="power-icon">✌️</span>
-              <span className="power-name">REVERSAL RED</span>
-              <span className="power-pct">{Math.round(pwrRed * 100)}%</span>
-            </div>
-            <div className="power-bar-bg">
-              <div className="power-bar-fill" style={{ width: `${Math.round(pwrRed * 100)}%` }}></div>
-            </div>
-            {pwrRed > 0.9 && <div className="power-ready">READY TO RELEASE</div>}
-          </div>
-        )}
-        {activeBlue && !activePurple && (
-          <div className="power-card gojo-card" style={{ borderColor: '#0088ff' }}>
-            <div className="power-header">
-              <span className="power-icon">✌️</span>
-              <span className="power-name" style={{ color: '#0088ff' }}>LAPSE BLUE</span>
-              <span className="power-pct">{Math.round(pwrBlue * 100)}%</span>
-            </div>
-            <div className="power-bar-bg">
-              <div className="power-bar-fill" style={{ width: `${Math.round(pwrBlue * 100)}%`, background: '#0088ff', boxShadow: '0 0 10px #0088ff' }}></div>
-            </div>
-            {pwrBlue > 0.9 && <div className="power-ready" style={{ color: '#0088ff', textShadow: '0 0 8px #0088ff' }}>READY TO RELEASE</div>}
-          </div>
-        )}
-        {activeSukuna && !activePurple && (
-          <div className="power-card sukuna-card">
-            <div className="power-header">
-              <span className="power-icon">🙏</span>
-              <span className="power-name">MALEVOLENT SHRINE</span>
-              <span className="power-pct">{Math.round(pwrSukuna * 100)}%</span>
-            </div>
-            <div className="power-bar-bg">
-              <div className="power-bar-fill" style={{ width: `${Math.round(pwrSukuna * 100)}%` }}></div>
-            </div>
-            {pwrSukuna > 0.9 && <div className="power-ready">DOMAIN EXPANDED</div>}
-          </div>
-        )}
-      </div>
+      {/* CINEMATIC TITLE POPUP */}
+      {activeTitle && activeTitle.type === 'purple' && (
+        <CinematicTitle key={activeTitle.id} kanji="虚式「茈」" subtitle="HOLLOW PURPLE" color="#cc88ff" onDone={() => setActiveTitle(null)} isActive={activePurple} />
+      )}
+      {activeTitle && activeTitle.type === 'sukuna' && (
+        <CinematicTitle key={activeTitle.id} kanji="伏魔御廚子" subtitle="MALEVOLENT SHRINE" color="#ff5555" onDone={() => setActiveTitle(null)} isActive={activeSukuna} />
+      )}
+      {activeTitle && activeTitle.type === 'red' && (
+        <CinematicTitle key={activeTitle.id} kanji="術式反転「赫」" subtitle="REVERSAL RED" color="#ff8888" onDone={() => setActiveTitle(null)} isActive={activeRed} />
+      )}
+      {activeTitle && activeTitle.type === 'blue' && (
+        <CinematicTitle key={activeTitle.id} kanji="術式順転「蒼」" subtitle="LAPSE BLUE" color="#88ccff" onDone={() => setActiveTitle(null)} isActive={activeBlue} />
+      )}
     </div>
   );
 }

@@ -21,12 +21,12 @@ export function useHandTracking(videoRef, onResults) {
       try {
         setLoadingMsg('Loading AI Models...');
         const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm"
         );
         
         if (!active) return;
 
-        handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
+        const landmarkerOptions = {
           baseOptions: {
             modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
             delegate: "GPU"
@@ -36,7 +36,15 @@ export function useHandTracking(videoRef, onResults) {
           minHandDetectionConfidence: 0.75,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
-        });
+        };
+
+        try {
+          handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, landmarkerOptions);
+        } catch (gpuErr) {
+          console.warn("GPU delegate failed, falling back to CPU:", gpuErr);
+          landmarkerOptions.baseOptions.delegate = "CPU";
+          handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, landmarkerOptions);
+        }
 
         if (!active) return;
 
