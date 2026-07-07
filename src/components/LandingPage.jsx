@@ -136,7 +136,7 @@ export default function LandingPage({ onEnter, onSelectNaruto, onSelectJJK }) {
     try {
       testAudioClicks.current += 1;
       const count = testAudioClicks.current;
-      const src = (count === 3 || count === 9) 
+      const src = (count % 4 === 0) 
         ? '/Audios/best-anime-ever.mp3' 
         : '/Audios/testing aaudio.mp3';
       const audio = new Audio(src);
