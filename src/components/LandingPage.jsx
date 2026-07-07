@@ -102,6 +102,7 @@ export default function LandingPage({ onEnter, onSelectNaruto, onSelectJJK }) {
 
   const cursorRef = useRef(null);
   const ctaBtnRef = useRef(null);
+  const testAudioClicks = useRef(0);
 
   // Rotating headline
   useEffect(() => {
@@ -133,7 +134,12 @@ export default function LandingPage({ onEnter, onSelectNaruto, onSelectJJK }) {
 
   const playTestSound = useCallback(() => {
     try {
-      const audio = new Audio('/Audios/testing aaudio.mp3');
+      testAudioClicks.current += 1;
+      const count = testAudioClicks.current;
+      const src = (count === 3 || count === 9) 
+        ? '/Audios/best-anime-ever.mp3' 
+        : '/Audios/testing aaudio.mp3';
+      const audio = new Audio(src);
       audio.volume = 0.8;
       audio.play();
     } catch (e) {}
@@ -363,7 +369,6 @@ export default function LandingPage({ onEnter, onSelectNaruto, onSelectJJK }) {
           {/* How It Works */}
           <section className="how-section" aria-label="How it works">
             <div className="section-header">
-              <span className="section-eyebrow">Simple as That</span>
               <h2 className="section-title">How It Works</h2>
             </div>
             <div className="steps-timeline">
