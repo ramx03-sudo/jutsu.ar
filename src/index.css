@@ -195,54 +195,16 @@ body { overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
 .dot.on-gojo { background: #00d4ff; box-shadow: 0 0 8px #00d4ff, 0 0 16px #4488ff; animation: dotPulse 0.5s ease-in-out infinite; }
 .dot.on-sukuna { background: #ff4444; box-shadow: 0 0 8px #ff4444, 0 0 16px #ff0000; animation: dotPulse 0.5s ease-in-out infinite; }
 
-.flash-gojo { background: radial-gradient(ellipse at center, rgba(0,212,255,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
-.flash-sukuna { background: radial-gradient(ellipse at center, rgba(255,0,0,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
+.flash-gojo   { background: radial-gradient(ellipse at center, rgba(0,212,255,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
+.flash-sukuna { background: radial-gradient(ellipse at center, rgba(255,0,0,0.2)   0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
+.flash-purple { background: radial-gradient(ellipse at center, rgba(150,0,255,0.2) 0%, transparent 70%); animation: flashAnim 0.45s ease-out forwards; }
 
-/* ── LANDING SCREEN ── */
-.landing-screen {
-  width: 100vw; min-height: 100vh;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: radial-gradient(circle at center, #0a0a1a 0%, #000 100%);
-  color: #fff; padding: 40px 20px; overflow-y: auto; text-align: center;
-  position: relative;
-}
-.landing-overlay {
-  position: absolute; inset: 0; background: url('https://www.transparenttextures.com/patterns/stardust.png'); opacity: 0.3; pointer-events: none;
-}
-.landing-content {
-  position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center;
-  max-width: 600px; margin-bottom: 50px;
-}
-.landing-badge {
-  font-size: 0.75rem; letter-spacing: 0.3em; text-transform: uppercase;
-  color: #00d4ff; border: 1px solid rgba(0,212,255,0.3); padding: 6px 12px;
-  border-radius: 20px; margin-bottom: 20px; background: rgba(0,212,255,0.05);
-}
-.landing-title {
-  font-family: 'Cinzel', serif; font-size: 4rem; letter-spacing: 0.15em;
-  text-transform: uppercase; margin-bottom: 16px;
-  background: linear-gradient(90deg, #fff, #aaa);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.landing-desc {
-  font-size: 1rem; line-height: 1.6; color: rgba(255,255,255,0.6);
-  margin-bottom: 40px;
-}
-.start-btn {
-  background: linear-gradient(90deg, #00d4ff, #4488ff); border: none;
-  color: #fff; font-family: 'Cinzel', serif; font-size: 1.2rem; font-weight: 700;
-  letter-spacing: 0.15em; padding: 15px 40px; border-radius: 30px;
-  cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 0 20px rgba(0,212,255,0.3);
-}
-.start-btn:hover {
-  transform: translateY(-3px) scale(1.05);
-  box-shadow: 0 0 30px rgba(0,212,255,0.6);
-}
-.landing-creator {
-  position: relative; z-index: 10; font-size: 0.85rem; color: rgba(255,255,255,0.4); letter-spacing: 0.1em;
-}
-.landing-creator span { color: #00d4ff; font-weight: bold; }
+/* ── BLEACH STYLES ── */
+.bleach-ring { border-top-color: #0088ff; border-right-color: #000000; }
+.bleach-ring-inner { border-top-color: #ffb4c8; border-left-color: #ff0000; }
+.bleach-dot { background: radial-gradient(circle, #fff, #0088ff); box-shadow: 0 0 15px #0088ff, 0 0 30px #0055ff; }
+.bleach-title { background: linear-gradient(90deg, #fff, #aaa, #ff0000); background-clip: text; -webkit-background-clip: text; }
+.bleach-darkness { background: rgba(0,0,0,0); transition: background 0.2s linear; }
 
 /* ── SELECTION SCREEN ── */
 .selection-screen {
@@ -278,6 +240,8 @@ body { overflow: hidden; background: #000; font-family: 'Inter', sans-serif; }
 .naruto-card:hover .card-bg { opacity: 1; background: radial-gradient(circle at bottom, rgba(255,140,0,0.2), transparent); }
 .jjk-card:hover { border-color: rgba(0,212,255,0.5); }
 .jjk-card:hover .card-bg { opacity: 1; background: radial-gradient(circle at bottom, rgba(0,212,255,0.2), transparent); }
+.bleach-card:hover { border-color: rgba(255,255,255,0.5); }
+.bleach-card:hover .card-bg { opacity: 1; background: radial-gradient(circle at bottom, rgba(255,255,255,0.1), transparent); }
 
 .card h2 { position: relative; z-index: 1; font-family: 'Cinzel', serif; font-size: 1.8rem; margin-bottom: 10px; }
 .card p { position: relative; z-index: 1; font-size: 0.8rem; color: rgba(255,255,255,0.5); letter-spacing: 0.05em; margin-bottom: 30px; text-align: center; padding: 0 20px; }

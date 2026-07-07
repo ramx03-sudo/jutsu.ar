@@ -1,60 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
+import { SFXPlayer } from './utils/AudioPlayer';
 import { useHandTracking } from './hooks/useHandTracking';
 import CinematicTitle from './components/CinematicTitle';
 import './index.css';
 import './hud.css';
 
-const gAudio = new SFXPlayer('/assets/Audios/gojo-reversal-red.mp3');
-const bAudio = new SFXPlayer('/assets/Audios/gojo-lapse-blue.mp3');
-const pAudio = new SFXPlayer('/assets/Audios/gojo_domain_expansion.mp3'); 
-const sAudio = new SFXPlayer('/assets/Audios/malevolent_shrine.mp3');
+// Audio players are created lazily inside the component (see JJK component body)
 
-function playGojo() { gAudio.play(); }
-function playBlue() { bAudio.play(); }
-function playPurple() { pAudio.play(); }
-function playSukuna() { sAudio.play(); }
-
-function updateJutsuAudio(activeR, activeB, activeP, activeS) {
-  const targetR = activeR ? 1.0 : 0;
-  const targetB = activeB ? 1.0 : 0;
-  const targetP = activeP ? 1.0 : 0;
-  const targetS = activeS ? 0.8 : 0;
-
-  let nextRVol = gAudio.logicalVolume;
-  let nextBVol = bAudio.logicalVolume;
-  let nextPVol = pAudio.logicalVolume;
-  let nextSVol = sAudio.logicalVolume;
-
-  if (nextRVol < targetR) nextRVol = Math.min(1.0, targetR);
-  else nextRVol = Math.max(0, nextRVol - 0.1);
-
-  if (nextBVol < targetB) nextBVol = Math.min(1.0, targetB);
-  else nextBVol = Math.max(0, nextBVol - 0.1);
-
-  if (nextPVol < targetP) nextPVol = Math.min(1.0, targetP);
-  else nextPVol = Math.max(0, nextPVol - 0.1);
-
-  if (nextSVol < targetS) nextSVol = Math.min(1.0, targetS);
-  else nextSVol = Math.max(0, nextSVol - 0.1);
-
-  if (targetP > 0) {
-    nextRVol = 0; nextBVol = 0; nextSVol = 0;
-  } else if (targetS > 0) {
-    nextRVol = 0; nextBVol = 0; nextPVol = 0;
-  }
-
-  if (nextRVol > 0) gAudio.setVolume(nextRVol);
-  if (nextBVol > 0) bAudio.setVolume(nextBVol);
-  if (nextPVol > 0) pAudio.setVolume(nextPVol);
-  if (nextSVol > 0) sAudio.setVolume(nextSVol);
-
-  if (nextRVol <= 0.01 && gAudio.isPlaying) gAudio.pause();
-  if (nextBVol <= 0.01 && bAudio.isPlaying) bAudio.pause();
-  if (nextPVol <= 0.01 && pAudio.isPlaying) pAudio.pause();
-  if (nextSVol <= 0.01 && sAudio.isPlaying) sAudio.pause();
-}
 
 /* ── PARTICLE CLASSES ── */
 class GojoSparkParticle {
@@ -518,11 +471,31 @@ function isSukunaSign(hands) {
 
 /* ── COMPONENT ── */
 function JJK({ onBack }) {
-  const vRef = useRef(null);
-  const cRef = useRef(null);
-  const efxRef = useRef(null);
+  const vRef    = useRef(null);
+  const cRef    = useRef(null);
+  const efxRef  = useRef(null);
   const flashRef = useRef(null);
-  const hintRef = useRef(null);
+  const hintRef  = useRef(null);
+
+  // Cached DrawingUtils — avoids allocating a new object every frame
+  const drawingUtilsRef = useRef(null);
+
+  // SFXPlayer refs — created lazily on first gesture to avoid
+  // AudioContext-before-user-gesture browser warning
+  const gAudioRef = useRef(null);
+  const bAudioRef = useRef(null);
+  const pAudioRef = useRef(null);
+  const sAudioRef = useRef(null);
+  const getGA = useCallback(() => { if (!gAudioRef.current) gAudioRef.current = new SFXPlayer('/assets/Audios/gojo-reversal-red.mp3'); return gAudioRef.current; }, []);
+  const getBA = useCallback(() => { if (!bAudioRef.current) bAudioRef.current = new SFXPlayer('/assets/Audios/gojo-lapse-blue.mp3');   return bAudioRef.current; }, []);
+  const getPA = useCallback(() => { if (!pAudioRef.current) pAudioRef.current = new SFXPlayer('/assets/Audios/gojo_domain_expansion.mp3'); return pAudioRef.current; }, []);
+  const getSA = useCallback(() => { if (!sAudioRef.current) sAudioRef.current = new SFXPlayer('/assets/Audios/malevolent_shrine.mp3'); return sAudioRef.current; }, []);
+
+  // Stable counter for unique title IDs
+  const titleIdRef = useRef(0);
+
+  // Memoized onDone — prevents CinematicTitle useEffect from re-running on every parent render
+  const handleTitleDone = useCallback(() => setActiveTitle(null), []);
 
   const [pwrRed, setPwrRed] = useState(0);
   const [pwrBlue, setPwrBlue] = useState(0);
@@ -579,7 +552,10 @@ function JJK({ onBack }) {
       }
 
       const isSukuna = isSukunaSign(res.multiHandLandmarks);
-      const drawingUtils = new DrawingUtils(ctx);
+
+      // Cache DrawingUtils — avoids allocating a new object every frame
+      if (!drawingUtilsRef.current) drawingUtilsRef.current = new DrawingUtils(ctx);
+      const drawingUtils = drawingUtilsRef.current;
 
       res.multiHandLandmarks.forEach((pts) => {
         let gesture = null;
@@ -625,10 +601,10 @@ function JJK({ onBack }) {
       flash.className = '';
       void flash.offsetWidth;
       flash.className = type === 'red' || type === 'blue' ? 'flash-gojo' : (type === 'purple' ? 'flash-purple' : 'flash-sukuna');
-      if (type === 'red') playGojo();
-      else if (type === 'blue') playBlue();
-      else if (type === 'purple') playPurple();
-      else playSukuna();
+      if (type === 'red')    getGA().play();
+      else if (type === 'blue')   getBA().play();
+      else if (type === 'purple') getPA().play();
+      else                        getSA().play();
     }
 
     let redPos = null;
@@ -770,26 +746,38 @@ function JJK({ onBack }) {
     const purpleOn = st.pwr.purple > 0.95;
     const sukunaOn = st.pwr.sukuna > 0.9;
     
-    if (purpleOn && !lastState.current.purple) setActiveTitle({ id: Date.now() + 2, type: 'purple' });
-    else if (sukunaOn && !lastState.current.sukuna) setActiveTitle({ id: Date.now() + 3, type: 'sukuna' });
+    if (purpleOn && !lastState.current.purple) setActiveTitle({ id: ++titleIdRef.current, type: 'purple' });
+    else if (sukunaOn && !lastState.current.sukuna) setActiveTitle({ id: ++titleIdRef.current, type: 'sukuna' });
     else {
       if (!st.wasActive.purple) {
-        if (redOn && !lastState.current.red) setActiveTitle({ id: Date.now(), type: 'red' });
-        if (blueOn && !lastState.current.blue) setActiveTitle({ id: Date.now() + 1, type: 'blue' });
+        if (redOn && !lastState.current.red)   setActiveTitle({ id: ++titleIdRef.current, type: 'red' });
+        if (blueOn && !lastState.current.blue) setActiveTitle({ id: ++titleIdRef.current, type: 'blue' });
       }
     }
     
     lastState.current = { red: redOn, blue: blueOn, purple: purpleOn, sukuna: sukunaOn };
-    
-    updateJutsuAudio(st.wasActive.red, st.wasActive.blue, st.wasActive.purple, st.wasActive.sukuna);
+
+    // Inline audio management using lazy refs
+    const gA = gAudioRef.current, bA = bAudioRef.current,
+          pA = pAudioRef.current, sA = sAudioRef.current;
+    const aR = st.wasActive.red, aB = st.wasActive.blue,
+          aP = st.wasActive.purple, aS = st.wasActive.sukuna;
+    if (gA) { if (aR && !aP && !aS) gA.setVolume(1.0); else if (gA.isPlaying) gA.pause(); }
+    if (bA) { if (aB && !aP && !aS) bA.setVolume(1.0); else if (bA.isPlaying) bA.pause(); }
+    if (pA) { if (aP) pA.setVolume(1.0); else if (pA.isPlaying) pA.pause(); }
+    if (sA) { if (aS) sA.setVolume(0.8); else if (sA.isPlaying) sA.pause(); }
+
     ctx.restore();
-  }, []);
+  }, [getGA, getBA, getPA, getSA]);
 
   const { isLoading, loadingMsg } = useHandTracking(vRef, onResults);
 
   useEffect(() => {
     return () => {
-      gAudio.pause(); bAudio.pause(); pAudio.pause(); sAudio.pause();
+      gAudioRef.current?.pause();
+      bAudioRef.current?.pause();
+      pAudioRef.current?.pause();
+      sAudioRef.current?.pause();
     };
   }, []);
 
@@ -830,16 +818,16 @@ function JJK({ onBack }) {
 
       {/* CINEMATIC TITLE POPUP */}
       {activeTitle && activeTitle.type === 'purple' && (
-        <CinematicTitle key={activeTitle.id} kanji="虚式「茈」" subtitle="HOLLOW PURPLE" color="#cc88ff" onDone={() => setActiveTitle(null)} isActive={activePurple} />
+        <CinematicTitle key={activeTitle.id} kanji="虚式「茈」" subtitle="HOLLOW PURPLE" color="#cc88ff" onDone={handleTitleDone} isActive={activePurple} />
       )}
       {activeTitle && activeTitle.type === 'sukuna' && (
-        <CinematicTitle key={activeTitle.id} kanji="伏魔御廚子" subtitle="MALEVOLENT SHRINE" color="#ff5555" onDone={() => setActiveTitle(null)} isActive={activeSukuna} />
+        <CinematicTitle key={activeTitle.id} kanji="伏魔御廚子" subtitle="MALEVOLENT SHRINE" color="#ff5555" onDone={handleTitleDone} isActive={activeSukuna} />
       )}
       {activeTitle && activeTitle.type === 'red' && (
-        <CinematicTitle key={activeTitle.id} kanji="術式反転「赫」" subtitle="REVERSAL RED" color="#ff8888" onDone={() => setActiveTitle(null)} isActive={activeRed} />
+        <CinematicTitle key={activeTitle.id} kanji="術式反転「赫」" subtitle="REVERSAL RED" color="#ff8888" onDone={handleTitleDone} isActive={activeRed} />
       )}
       {activeTitle && activeTitle.type === 'blue' && (
-        <CinematicTitle key={activeTitle.id} kanji="術式順転「蒼」" subtitle="LAPSE BLUE" color="#88ccff" onDone={() => setActiveTitle(null)} isActive={activeBlue} />
+        <CinematicTitle key={activeTitle.id} kanji="術式順転「蒼」" subtitle="LAPSE BLUE" color="#88ccff" onDone={handleTitleDone} isActive={activeBlue} />
       )}
     </div>
   );

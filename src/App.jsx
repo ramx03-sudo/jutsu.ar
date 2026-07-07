@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import Naruto from './Naruto';
 import JJK from './JJK';
+import Bleach from './Bleach';
+import LandingPage from './components/LandingPage';
 import './index.css';
 
+const STATES = { LANDING: 'landing', SELECTION: 'selection', NARUTO: 'naruto', JJK: 'jjk', BLEACH: 'bleach', INSTRUCTIONS: 'instructions' };
+
 function App() {
-  const [appState, setAppState] = useState('landing'); // 'landing', 'selection', 'naruto', 'jjk'
+  const [appState, setAppState] = useState(STATES.LANDING);
 
-  if (appState === 'naruto') {
-    return <Naruto onBack={() => setAppState('selection')} />;
+  if (appState === STATES.NARUTO) {
+    return <Naruto onBack={() => setAppState(STATES.SELECTION)} />;
   }
 
-  if (appState === 'jjk') {
-    return <JJK onBack={() => setAppState('selection')} />;
+  if (appState === STATES.JJK) {
+    return <JJK onBack={() => setAppState(STATES.SELECTION)} />;
   }
 
-  if (appState === 'instructions') {
+  if (appState === STATES.BLEACH) {
+    return <Bleach onBack={() => setAppState(STATES.SELECTION)} />;
+  }
+
+  if (appState === STATES.INSTRUCTIONS) {
     return (
       <div className="selection-screen">
         <div className="selection-header">
@@ -43,32 +51,24 @@ function App() {
               <li><span style={{color: '#55aaff', fontWeight: 'bold'}}>Right Hand Open:</span> Chidori</li>
             </ul>
           </div>
+
+          {/* Bleach instructions hidden for now */}
           
           <p style={{ marginTop: '10px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>* Ensure you are in a well-lit room and your hands are clearly visible to the camera.</p>
         </div>
         
-        <button className="back-btn" onClick={() => setAppState('selection')}>← Back</button>
+        <button className="back-btn" onClick={() => setAppState(STATES.SELECTION)} aria-label="Back to selection screen">← Back</button>
       </div>
     );
   }
 
-  if (appState === 'landing') {
+  if (appState === STATES.LANDING) {
     return (
-      <div className="landing-screen">
-        <div className="landing-overlay"></div>
-        <div className="landing-content">
-          <div className="landing-badge">AR Experience</div>
-          <h1 className="landing-title">Jutsu AR</h1>
-          <p className="landing-desc">Step into the anime world. Unleash powerful cursed energy and ancient jutsu using real-time hand tracking.</p>
-          
-          <button className="start-btn" onClick={() => setAppState('selection')}>
-            ENTER NOW
-          </button>
-        </div>
-        <div className="landing-creator">
-          Created by <span>Ram Uchiha</span>
-        </div>
-      </div>
+      <LandingPage
+        onEnter={() => setAppState(STATES.SELECTION)}
+        onSelectNaruto={() => setAppState(STATES.NARUTO)}
+        onSelectJJK={() => setAppState(STATES.JJK)}
+      />
     );
   }
 
@@ -81,24 +81,40 @@ function App() {
 
       <div className="selection-container">
         <div className="selection-cards">
-          <div className="card naruto-card" onClick={() => setAppState('naruto')}>
+          <div
+            className="card naruto-card"
+            onClick={() => setAppState(STATES.NARUTO)}
+            role="button"
+            tabIndex={0}
+            aria-label="Enter Naruto experience"
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setAppState(STATES.NARUTO)}
+          >
             <div className="card-bg"></div>
             <h2>Naruto</h2>
-            <p>Rasengan & Chidori</p>
+            <p>Rasengan &amp; Chidori</p>
             <div className="card-icon">🌀</div>
           </div>
 
-          <div className="card jjk-card" onClick={() => setAppState('jjk')}>
+          <div
+            className="card jjk-card"
+            onClick={() => setAppState(STATES.JJK)}
+            role="button"
+            tabIndex={0}
+            aria-label="Enter Jujutsu Kaisen experience"
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setAppState(STATES.JJK)}
+          >
             <div className="card-bg"></div>
             <h2>Jujutsu Kaisen</h2>
-            <p>Hollow Purple & Domain Expansion</p>
+            <p>Hollow Purple &amp; Domain Expansion</p>
             <div className="card-icon">🤞</div>
           </div>
+
+          {/* Bleach card hidden for now */}
         </div>
       </div>
       
-      <button className="back-btn" onClick={() => setAppState('landing')}>← Back to Home</button>
-      <button onClick={() => setAppState('instructions')} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', backdropFilter: 'blur(5px)', transition: 'all 0.3s ease', fontSize: '1rem', fontWeight: 'bold', zIndex: 100 }}>📖 How to Play</button>
+      <button className="back-btn" onClick={() => setAppState(STATES.LANDING)} aria-label="Back to home screen">← Back to Home</button>
+      <button onClick={() => setAppState(STATES.INSTRUCTIONS)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', backdropFilter: 'blur(5px)', transition: 'all 0.3s ease', fontSize: '1rem', fontWeight: 'bold', zIndex: 100 }} aria-label="How to play instructions">📖 How to Play</button>
     </div>
   );
 }

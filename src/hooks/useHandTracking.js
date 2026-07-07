@@ -15,6 +15,7 @@ export function useHandTracking(videoRef, onResults) {
 
   useEffect(() => {
     let active = true;
+    let loadedListener = null;
     const vEl = videoRef.current;
     
     async function initVision() {
@@ -32,8 +33,8 @@ export function useHandTracking(videoRef, onResults) {
             delegate: "GPU"
           },
           runningMode: "VIDEO",
-          numHands: 4,
-          minHandDetectionConfidence: 0.75,
+          numHands: 2,
+          minHandDetectionConfidence: 0.65,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
         };
@@ -49,7 +50,9 @@ export function useHandTracking(videoRef, onResults) {
         if (!active) return;
 
         setLoadingMsg('Starting Camera...');
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 } });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
         
         if (!active) {
             stream.getTracks().forEach(t => t.stop());
@@ -58,13 +61,14 @@ export function useHandTracking(videoRef, onResults) {
 
         if (vEl) {
           vEl.srcObject = stream;
-          vEl.addEventListener("loadeddata", () => {
+          loadedListener = () => {
             if (active) {
               setLoadingMsg('Ready!');
               setTimeout(() => { if (active) setIsLoading(false); }, 200);
               predictWebcam();
             }
-          });
+          };
+          vEl.addEventListener('loadeddata', loadedListener);
         }
       } catch (err) {
         if (active) setLoadingMsg('⚠ Camera access denied or model failed to load.');
@@ -74,6 +78,10 @@ export function useHandTracking(videoRef, onResults) {
 
     function predictWebcam() {
       if (!vEl || vEl.paused || vEl.ended || !active) return;
+      if (document.visibilityState === 'hidden') {
+        animationIdRef.current = requestAnimationFrame(predictWebcam);
+        return;
+      }
       
       const handLandmarker = handLandmarkerRef.current;
       if (vEl.currentTime !== lastVideoTimeRef.current && handLandmarker) {
@@ -102,6 +110,7 @@ export function useHandTracking(videoRef, onResults) {
 
     return () => {
       active = false;
+      if (loadedListener && vEl) vEl.removeEventListener('loadeddata', loadedListener);
       if (animationIdRef.current) {
         if (vEl && 'cancelVideoFrameCallback' in vEl) {
           try { vEl.cancelVideoFrameCallback(animationIdRef.current); } catch(e){}

@@ -1,31 +1,77 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { SFXPlayer, audioCtx } from './utils/AudioPlayer';
+import { SFXPlayer } from './utils/AudioPlayer';
 import { useHandTracking } from './hooks/useHandTracking';
 import CinematicTitle from './components/CinematicTitle';
 import './index.css';
 
-const rAudio = new SFXPlayer('/assets/Audios/rasengan.mp3');
-const cAudio = new SFXPlayer('/assets/Audios/chidori.mp3');
+// ── Power ramp constants ──────────────────────────────────────────────────────
+const PWR_RISE = 0.05;
+const PWR_FALL = 0.15;
 
-function playRasengan() { rAudio.play(); }
-function playChidori() { cAudio.play(); }
+// ── Pure utility functions (extracted outside component to avoid per-frame recreation) ──
 
-function updateJutsuAudio(pwrL, pwrR) {
-  if (pwrL > 0.01) rAudio.setVolume(pwrL * 0.8);
-  else rAudio.pause();
-
-  if (pwrR > 0.01) cAudio.setVolume(pwrR * 0.8);
-  else cAudio.pause();
+/** Returns screen pixel coordinates for a normalized MediaPipe landmark. */
+function getScreenCoords(vEl, nx, ny) {
+  if (!vEl || !vEl.videoWidth) {
+    return { x: (1 - nx) * window.innerWidth, y: ny * window.innerHeight };
+  }
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const vRatio = vEl.videoWidth / vEl.videoHeight;
+  const sRatio = vw / vh;
+  let renderW, renderH, offsetX, offsetY;
+  if (sRatio > vRatio) {
+    renderW = vw; renderH = vw / vRatio;
+    offsetX = 0; offsetY = (vh - renderH) / 2;
+  } else {
+    renderH = vh; renderW = vh * vRatio;
+    offsetX = (vw - renderW) / 2; offsetY = 0;
+  }
+  return { x: (1 - nx) * renderW + offsetX, y: ny * renderH + offsetY };
 }
 
+/** Returns true if the hand is open (≥3 fingers extended). */
+function checkOpen(pts) {
+  let count = 0;
+  const wrist = pts[0];
+  const tips = [8, 12, 16, 20];
+  const pips  = [6, 10, 14, 18];
+  for (let i = 0; i < 4; i++) {
+    const tipD = Math.hypot(pts[tips[i]].x - wrist.x, pts[tips[i]].y - wrist.y);
+    const pipD = Math.hypot(pts[pips[i]].x - wrist.x, pts[pips[i]].y - wrist.y);
+    if (tipD > pipD) count++;
+  }
+  const tTip = Math.hypot(pts[4].x - wrist.x, pts[4].y - wrist.y);
+  const tIP  = Math.hypot(pts[3].x - wrist.x, pts[3].y - wrist.y);
+  if (tTip > tIP) count += 0.5;
+  return count >= 3;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 function Naruto({ onBack }) {
-  const vRef = useRef(null);
-  const cRef = useRef(null);
+  const vRef    = useRef(null);
+  const cRef    = useRef(null);
   const nVidRef = useRef(null);
   const sVidRef = useRef(null);
   const flashRef = useRef(null);
-  const hintRef = useRef(null);
+  const hintRef  = useRef(null);
+
+  // Cached DrawingUtils instance — avoids allocating a new object every frame
+  const drawingUtilsRef = useRef(null);
+
+  // SFXPlayer instances created lazily on first user interaction (avoids
+  // AudioContext-before-gesture browser warning)
+  const rAudioRef = useRef(null);
+  const cAudioRef = useRef(null);
+  const getRAudio = useCallback(() => {
+    if (!rAudioRef.current) rAudioRef.current = new SFXPlayer('/assets/Audios/rasengan.mp3');
+    return rAudioRef.current;
+  }, []);
+  const getCAudio = useCallback(() => {
+    if (!cAudioRef.current) cAudioRef.current = new SFXPlayer('/assets/Audios/chidori.mp3');
+    return cAudioRef.current;
+  }, []);
 
   // HUD state
   const [pwrL, setPwrL] = useState(0);
@@ -33,9 +79,12 @@ function Naruto({ onBack }) {
   const [openL, setOpenL] = useState(false);
   const [openR, setOpenR] = useState(false);
   const [activeTitle, setActiveTitle] = useState(null);
-  const lastState = useRef({ n: false, s: false });
+  const lastState  = useRef({ n: false, s: false });
 
-  // We use Refs for power and state inside the onResults callback so we don't have to recreate it
+  // Stable counter for unique title IDs (avoids same-millisecond collision)
+  const titleIdRef = useRef(0);
+
+  // Mutable state inside the onResults hot loop (avoids re-creating useCallback)
   const stateRef = useRef({
     pwr: [0, 0],
     wasOpen: [false, false],
@@ -43,24 +92,35 @@ function Naruto({ onBack }) {
     lastResize: 0
   });
 
+  // Stable onDone callback passed to CinematicTitle — memoized to prevent
+  // CinematicTitle's useEffect from firing on every parent render
+  const handleTitleDone = useCallback(() => setActiveTitle(null), []);
+
   const onResults = useCallback((res) => {
-    const vEl = vRef.current;
-    const cEl = cRef.current;
+    const vEl  = vRef.current;
+    const cEl  = cRef.current;
     if (!vEl || !cEl) return;
-    
-    const ctx = cEl.getContext('2d');
+
+    const ctx  = cEl.getContext('2d');
     const nVid = nVidRef.current;
     const sVid = sVidRef.current;
     const flash = flashRef.current;
-    const hint = hintRef.current;
-    const st = stateRef.current;
+    const hint  = hintRef.current;
+    const st    = stateRef.current;
 
+    // Throttle canvas resize to every 250 ms
     const now = Date.now();
     if (now - st.lastResize > 250) {
-      cEl.width = vEl.videoWidth || window.innerWidth;
+      cEl.width  = vEl.videoWidth  || window.innerWidth;
       cEl.height = vEl.videoHeight || window.innerHeight;
       st.lastResize = now;
     }
+
+    // Cache DrawingUtils — one allocation per canvas lifetime
+    if (!drawingUtilsRef.current) {
+      drawingUtilsRef.current = new DrawingUtils(ctx);
+    }
+    const drawingUtils = drawingUtilsRef.current;
 
     ctx.save();
     ctx.clearRect(0, 0, cEl.width, cEl.height);
@@ -69,46 +129,14 @@ function Naruto({ onBack }) {
     if (nVid) nVid.style.display = 'none';
     if (sVid) sVid.style.display = 'none';
 
-    function getScreenCoords(nx, ny) {
-      if (!vEl || !vEl.videoWidth) return { x: (1 - nx) * window.innerWidth, y: ny * window.innerHeight };
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const vRatio = vEl.videoWidth / vEl.videoHeight;
-      const sRatio = vw / vh;
-      let renderW, renderH, offsetX, offsetY;
-      if (sRatio > vRatio) {
-        renderW = vw; renderH = vw / vRatio;
-        offsetX = 0; offsetY = (vh - renderH) / 2;
-      } else {
-        renderH = vh; renderW = vh * vRatio;
-        offsetX = (vw - renderW) / 2; offsetY = 0;
-      }
-      return { x: (1 - nx) * renderW + offsetX, y: ny * renderH + offsetY };
-    }
-
-    function checkOpen(pts) {
-      let count = 0;
-      const wrist = pts[0];
-      const tips = [8, 12, 16, 20];
-      const pips = [6, 10, 14, 18];
-      for (let i = 0; i < 4; i++) {
-        const tipD = Math.hypot(pts[tips[i]].x - wrist.x, pts[tips[i]].y - wrist.y);
-        const pipD = Math.hypot(pts[pips[i]].x - wrist.x, pts[pips[i]].y - wrist.y);
-        if (tipD > pipD) count++;
-      }
-      const tTip = Math.hypot(pts[4].x - wrist.x, pts[4].y - wrist.y);
-      const tIP = Math.hypot(pts[3].x - wrist.x, pts[3].y - wrist.y);
-      if (tTip > tIP) count += 0.5;
-      return count >= 3;
-    }
-
+    // triggerFlash uses stable refs — defined once per onResults call, not per-frame
     function triggerFlash(type) {
       if (!flash) return;
       flash.className = '';
       void flash.offsetWidth;
       flash.className = type === 'n' ? 'flash-naruto' : 'flash-sasuke';
-      if (type === 'n') playRasengan();
-      else playChidori();
+      if (type === 'n') getRAudio().play();
+      else               getCAudio().play();
     }
 
     if (res.multiHandLandmarks && res.multiHandedness) {
@@ -116,8 +144,6 @@ function Naruto({ onBack }) {
         st.hintHidden = true;
         if (hint) hint.classList.add('hidden');
       }
-
-      const drawingUtils = new DrawingUtils(ctx);
 
       res.multiHandLandmarks.forEach((pts, i) => {
         const isR = res.multiHandedness[i].label === 'Right';
@@ -138,10 +164,10 @@ function Naruto({ onBack }) {
         if (open && !st.wasOpen[idx]) {
           triggerFlash(isR ? 's' : 'n');
           const vid = isR ? sVid : nVid;
-          if (vid) { vid.currentTime = 0; vid.play().catch(e=>{}); }
+          if (vid) { vid.currentTime = 0; vid.play().catch(() => {}); }
         }
 
-        st.pwr[idx] += open ? 0.05 : -0.15;
+        st.pwr[idx] += open ? PWR_RISE : -PWR_FALL;
         st.pwr[idx] = Math.max(0, Math.min(1, st.pwr[idx]));
         st.wasOpen[idx] = open;
 
@@ -151,9 +177,9 @@ function Naruto({ onBack }) {
           if (isR && sVid) {
             fR = true;
             const tx = (wrist.x + knk.x) / 2, ty = (wrist.y + knk.y) / 2;
-            const coords = getScreenCoords(tx, ty);
-            sVid.style.left = `${coords.x}px`;
-            sVid.style.top = `${coords.y}px`;
+            const coords = getScreenCoords(vEl, tx, ty);
+            sVid.style.left    = `${coords.x}px`;
+            sVid.style.top     = `${coords.y}px`;
             sVid.style.display = 'block';
             sVid.style.opacity = st.pwr[idx];
           } else if (nVid) {
@@ -161,9 +187,9 @@ function Naruto({ onBack }) {
             const dx = knk.x - wrist.x, dy = knk.y - wrist.y;
             const tx = knk.x + dx * 0.8, ty = knk.y + dy * 0.8;
             const offset = window.innerWidth < 768 ? 20 : 120;
-            const coords = getScreenCoords(tx, ty);
-            nVid.style.left = `${coords.x}px`;
-            nVid.style.top = `${coords.y - offset}px`;
+            const coords = getScreenCoords(vEl, tx, ty);
+            nVid.style.left    = `${coords.x}px`;
+            nVid.style.top     = `${coords.y - offset}px`;
             nVid.style.display = 'block';
             nVid.style.opacity = st.pwr[idx];
           }
@@ -172,12 +198,12 @@ function Naruto({ onBack }) {
     }
 
     if (!fL && nVid) {
-      st.pwr[0] = Math.max(0, st.pwr[0] - 0.15);
+      st.pwr[0] = Math.max(0, st.pwr[0] - PWR_FALL);
       if (st.pwr[0] > 0.01) { nVid.style.display = 'block'; nVid.style.opacity = st.pwr[0]; }
       st.wasOpen[0] = false;
     }
     if (!fR && sVid) {
-      st.pwr[1] = Math.max(0, st.pwr[1] - 0.15);
+      st.pwr[1] = Math.max(0, st.pwr[1] - PWR_FALL);
       if (st.pwr[1] > 0.01) { sVid.style.display = 'block'; sVid.style.opacity = st.pwr[1]; }
       st.wasOpen[1] = false;
     }
@@ -186,26 +212,30 @@ function Naruto({ onBack }) {
     setPwrR(st.pwr[1]);
     setOpenL(st.pwr[0] > 0.01);
     setOpenR(st.pwr[1] > 0.01);
-    
+
     const nOn = st.pwr[0] > 0.9;
     const sOn = st.pwr[1] > 0.9;
-    
-    if (nOn && !lastState.current.n) setActiveTitle({ id: Date.now(), type: 'rasengan' });
-    if (sOn && !lastState.current.s) setActiveTitle({ id: Date.now() + 1, type: 'chidori' });
-    
+
+    if (nOn && !lastState.current.n) setActiveTitle({ id: ++titleIdRef.current, type: 'rasengan' });
+    if (sOn && !lastState.current.s) setActiveTitle({ id: ++titleIdRef.current, type: 'chidori' });
+
     lastState.current = { n: nOn, s: sOn };
 
-    updateJutsuAudio(st.pwr[0], st.pwr[1]);
-    
+    // Update audio volumes
+    const rA = rAudioRef.current;
+    const cA = cAudioRef.current;
+    if (rA) { if (st.pwr[0] > 0.01) rA.setVolume(st.pwr[0] * 0.8); else rA.pause(); }
+    if (cA) { if (st.pwr[1] > 0.01) cA.setVolume(st.pwr[1] * 0.8); else cA.pause(); }
+
     ctx.restore();
-  }, []);
+  }, [getRAudio, getCAudio]);
 
   const { isLoading, loadingMsg } = useHandTracking(vRef, onResults);
 
   useEffect(() => {
     return () => {
-      rAudio.pause();
-      cAudio.pause();
+      rAudioRef.current?.pause();
+      cAudioRef.current?.pause();
     };
   }, []);
 
@@ -230,7 +260,7 @@ function Naruto({ onBack }) {
 
       <div id="flash" ref={flashRef}></div>
 
-      <video id="n" ref={nVidRef} className="fx" src="/assets/naruto.mp4" muted autoPlay loop playsInline></video>
+      <video id="n" ref={nVidRef} className="fx" src="/assets/naruto.mp4"  muted autoPlay loop playsInline></video>
       <video id="s" ref={sVidRef} className="fx" src="/assets/sasuke.mp4" muted autoPlay loop playsInline></video>
 
       <div id="top-badge">
@@ -252,7 +282,7 @@ function Naruto({ onBack }) {
           kanji="螺旋丸"
           subtitle="RASENGAN"
           color="#88ccff"
-          onDone={() => setActiveTitle(null)}
+          onDone={handleTitleDone}
           isActive={openL}
         />
       )}
@@ -262,7 +292,7 @@ function Naruto({ onBack }) {
           kanji="千鳥"
           subtitle="CHIDORI"
           color="#cc88ff"
-          onDone={() => setActiveTitle(null)}
+          onDone={handleTitleDone}
           isActive={openR}
         />
       )}
